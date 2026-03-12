@@ -74,11 +74,13 @@ export interface PostConditionAssetInfo {
 export enum PostConditionNonfungibleConditionCodeID {
     Sent = 0x10,
     NotSent = 0x11,
+    MaybeSent = 0x12,
 }
 
 export enum PostConditionNonFungibleConditionName {
     Sent = "sent",
     NotSent = "not_sent",
+    MaybeSent = "maybe_sent",
 }
 
 export enum PostConditionFungibleConditionCodeID {
@@ -392,6 +394,8 @@ export enum PostConditionModeID {
     Allow = 0x01,
     /** This transaction may NOT affect other assets besides those listed in the post-conditions. */
     Deny = 0x02,
+    /** Deny for the transaction origin; allow for everyone else (SIP-040). */
+    Originator = 0x03,
 }
 
 export interface ClarityValueCommon {

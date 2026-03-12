@@ -7,6 +7,7 @@ use std::{
 use crate::clarity_value::types::{ClarityName, ClarityValue};
 use crate::{address::stacks_address::StacksAddress, serialize_util::DeserializeError};
 
+#[derive(Debug, PartialEq)]
 pub enum TransactionPostCondition {
     STX(PostConditionPrincipal, FungibleConditionCode, u64),
     Fungible(
@@ -23,6 +24,7 @@ pub enum TransactionPostCondition {
     ),
 }
 
+#[derive(Debug, PartialEq)]
 pub enum PostConditionPrincipal {
     Origin,
     Standard(StacksAddress),
@@ -37,7 +39,7 @@ pub enum PostConditionPrincipalID {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum FungibleConditionCode {
     SentEq = 0x01,
     SentGt = 0x02,
@@ -61,10 +63,12 @@ impl TryFrom<u8> for FungibleConditionCode {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum NonfungibleConditionCode {
     Sent = 0x10,
     NotSent = 0x11,
+    /** `MaybeSent` — The NFT may or may not be sent; always passes (SIP-040) */
+    MaybeSent = 0x12,
 }
 
 impl TryFrom<u8> for NonfungibleConditionCode {
@@ -73,11 +77,13 @@ impl TryFrom<u8> for NonfungibleConditionCode {
         match v {
             0x10 => Ok(NonfungibleConditionCode::Sent),
             0x11 => Ok(NonfungibleConditionCode::NotSent),
+            0x12 => Ok(NonfungibleConditionCode::MaybeSent),
             _ => Err(()),
         }
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct AssetInfo {
     pub contract_address: StacksAddress,
     pub contract_name: ClarityName,

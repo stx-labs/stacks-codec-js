@@ -68,6 +68,9 @@ impl StacksTransaction {
             x if x == TransactionPostConditionMode::Deny as u8 => {
                 TransactionPostConditionMode::Deny
             }
+            x if x == TransactionPostConditionMode::Originator as u8 => {
+                TransactionPostConditionMode::Originator
+            }
             _ => {
                 return Err(format!(
                     "Failed to parse transaction: invalid post-condition mode {}",
@@ -589,10 +592,11 @@ pub enum TransactionAnchorMode {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TransactionPostConditionMode {
-    Allow = 0x01, // allow any other changes not specified
-    Deny = 0x02,  // deny any other changes not specified
+    Allow = 0x01,      // allow any other changes not specified
+    Deny = 0x02,       // deny any other changes not specified
+    Originator = 0x03, // deny for the transaction origin, allow for everyone else (SIP-040)
 }
 
 #[repr(u8)]
@@ -747,11 +751,21 @@ impl TenureChangeCause {
         match n {
             x if x == TenureChangeCause::BlockFound as u8 => Some(TenureChangeCause::BlockFound),
             x if x == TenureChangeCause::Extended as u8 => Some(TenureChangeCause::Extended),
-            x if x == TenureChangeCause::ExtendedRuntime as u8 => Some(TenureChangeCause::ExtendedRuntime),
-            x if x == TenureChangeCause::ExtendedReadCount as u8 => Some(TenureChangeCause::ExtendedReadCount),
-            x if x == TenureChangeCause::ExtendedReadLength as u8 => Some(TenureChangeCause::ExtendedReadLength),
-            x if x == TenureChangeCause::ExtendedWriteCount as u8 => Some(TenureChangeCause::ExtendedWriteCount),
-            x if x == TenureChangeCause::ExtendedWriteLength as u8 => Some(TenureChangeCause::ExtendedWriteLength),
+            x if x == TenureChangeCause::ExtendedRuntime as u8 => {
+                Some(TenureChangeCause::ExtendedRuntime)
+            }
+            x if x == TenureChangeCause::ExtendedReadCount as u8 => {
+                Some(TenureChangeCause::ExtendedReadCount)
+            }
+            x if x == TenureChangeCause::ExtendedReadLength as u8 => {
+                Some(TenureChangeCause::ExtendedReadLength)
+            }
+            x if x == TenureChangeCause::ExtendedWriteCount as u8 => {
+                Some(TenureChangeCause::ExtendedWriteCount)
+            }
+            x if x == TenureChangeCause::ExtendedWriteLength as u8 => {
+                Some(TenureChangeCause::ExtendedWriteLength)
+            }
             _ => None,
         }
     }
@@ -801,24 +815,150 @@ pub struct TransactionContractCall {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hex::decode_hex;
+    use crate::{
+        clarity_value::types::Value,
+        hex::decode_hex,
+        post_condition::deserialize::{
+            AssetInfo, FungibleConditionCode, NonfungibleConditionCode, PostConditionPrincipal,
+        },
+    };
 
     #[test]
     fn test_decode_bug() {
-        // 07c15258750a06e6ddae0320f978e5d86973933f1803d5bbd35213b54e75d2310f006402e97fca6444b0dc98f6f9a1013c5554975c7ce1c7954135949e6af4b9c56ed9cbf1a61dc83d054fa9cc699c9918af44a9b9ab2e5ccaf9611b86e963f139c49a6c546a8e94d67bb21cda0aa3b05364960e91d4281e7000000015124b91930cea290260f27dd56093f0dbefc4e6c5fa
-        // pre-payload byte length: 115
-        // let input = b"0x00000000010400982f3ec112a5f5928a5c96a914bd733793b896a5000000000000053000000000000002290000c85889dad0d5b08a997a93a28a7c93eb22c324e5f8992dc93e37865ef4f3e0d65383beefeffc4871a2facbc4b590ddf887c80de6638ed4e2ec0e633d1e130f230301000000000216982f3ec112a5f5928a5c96a914bd733793b896a51861726b6164696b6f2d676f7665726e616e63652d76332d310770726f706f7365000000060616982f3ec112a5f5928a5c96a914bd733793b896a51d61726b6164696b6f2d7374616b652d706f6f6c2d64696b6f2d76312d32010000000000000000000000000000ef8801000000000000000000000000000003f00e00000028414950313020557064617465204c54567320616e64204c69717569646174696f6e20526174696f730e0000003168747470733a2f2f6769746875622e636f6d2f61726b6164696b6f2d64616f2f61726b6164696b6f2f70756c6c2f3439330b000000010c0000000507616464726573730516982f3ec112a5f5928a5c96a914bd733793b896a50863616e2d6275726e040863616e2d6d696e7404046e616d650d0000002b61697031302d61726b6164696b6f2d7570646174652d74766c2d6c69717569646174696f6e2d726174696f0e7175616c69666965642d6e616d650616982f3ec112a5f5928a5c96a914bd733793b896a52b61697031302d61726b6164696b6f2d7570646174652d74766c2d6c69717569646174696f6e2d726174696f";
-
-        // tx prefix (before payload):
-        // let input = b"00000000010400982f3ec112a5f5928a5c96a914bd733793b896a5000000000000053000000000000002290000c85889dad0d5b08a997a93a28a7c93eb22c324e5f8992dc93e37865ef4f3e0d65383beefeffc4871a2facbc4b590ddf887c80de6638ed4e2ec0e633d1e130f23030100000000";
-
         let input = b"808000000004001dc27eba0247f8cc9575e7d45e50a0bc7e72427d000000000000001d000000000000000000011dc72b6dfd9b36e414a2709e3b01eb5bbdd158f9bc77cd2ca6c3c8b0c803613e2189f6dacf709b34e8182e99d3a1af15812b75e59357d9c255c772695998665f010200000000076f2ff2c4517ab683bf2d588727f09603cc3e9328b9c500e21a939ead57c0560af8a3a132bd7d56566f2ff2c4517ab683bf2d588727f09603cc3e932828dcefb98f6b221eef731cabec7538314441c1e0ff06b44c22085d41aae447c1000000010014ff3cb19986645fd7e71282ad9fea07d540a60e";
-
         let bytes = decode_hex(input).unwrap();
         let bytes_len = bytes.len();
         let mut cursor = Cursor::new(bytes.as_ref());
         let tx = StacksTransaction::deserialize(&mut cursor);
         assert!(tx.is_ok());
         assert_eq!(cursor.position() as usize, bytes_len);
+    }
+
+    #[test]
+    fn test_post_condition_originator_stx_sent_eq() {
+        let input = b"80800000000400143e543243dfcd8c02a12ad7ea371bd07bc91df90000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003030000000100010100000000000003e801047465737400000009286f6b207472756529";
+        let bytes = decode_hex(input).unwrap();
+        let bytes_len = bytes.len();
+        let mut cursor = Cursor::new(bytes.as_ref());
+        let tx = StacksTransaction::deserialize(&mut cursor).unwrap();
+        assert_eq!(cursor.position() as usize, bytes_len);
+        assert_eq!(
+            tx.post_condition_mode,
+            TransactionPostConditionMode::Originator
+        );
+        assert_eq!(tx.post_conditions.len(), 1);
+        assert_eq!(
+            tx.post_conditions[0],
+            TransactionPostCondition::STX(
+                PostConditionPrincipal::Origin,
+                FungibleConditionCode::SentEq,
+                1000
+            )
+        );
+    }
+
+    #[test]
+    fn test_post_condition_originator_ft_sent_ge() {
+        let input = b"80800000000400143e543243dfcd8c02a12ad7ea371bd07bc91df900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000030300000001010101aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0d746573742d636f6e747261637408746573742d6e667403000000000000138801047465737400000009286f6b207472756529";
+        let bytes = decode_hex(input).unwrap();
+        let bytes_len = bytes.len();
+        let mut cursor = Cursor::new(bytes.as_ref());
+        let tx = StacksTransaction::deserialize(&mut cursor).unwrap();
+        assert_eq!(cursor.position() as usize, bytes_len);
+        assert_eq!(
+            tx.post_condition_mode,
+            TransactionPostConditionMode::Originator
+        );
+        assert_eq!(tx.post_conditions.len(), 1);
+        assert_eq!(
+            tx.post_conditions[0],
+            TransactionPostCondition::Fungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, [0xaa; 20]),
+                    contract_name: "test-contract".into(),
+                    asset_name: "test-nft".into(),
+                },
+                FungibleConditionCode::SentGe,
+                5000
+            )
+        );
+    }
+
+    #[test]
+    fn test_post_condition_originator_nft_maybe_sent() {
+        let input = b"80800000000400143e543243dfcd8c02a12ad7ea371bd07bc91df900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000030300000001020101aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0d746573742d636f6e747261637408746573742d6e667401000000000000000000000000000000011201047465737400000009286f6b207472756529";
+        let bytes = decode_hex(input).unwrap();
+        let bytes_len = bytes.len();
+        let mut cursor = Cursor::new(bytes.as_ref());
+        let tx = StacksTransaction::deserialize(&mut cursor).unwrap();
+        assert_eq!(cursor.position() as usize, bytes_len);
+        assert_eq!(
+            tx.post_condition_mode,
+            TransactionPostConditionMode::Originator
+        );
+        assert_eq!(tx.post_conditions.len(), 1);
+        assert_eq!(
+            tx.post_conditions[0],
+            TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, [0xaa; 20]),
+                    contract_name: "test-contract".into(),
+                    asset_name: "test-nft".into(),
+                },
+                ClarityValue::new_with_bytes(
+                    [
+                        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x01,
+                    ],
+                    Value::UInt(1),
+                ),
+                NonfungibleConditionCode::MaybeSent,
+            )
+        );
+    }
+
+    #[test]
+    fn test_post_condition_deny_nft_maybe_sent() {
+        let input = b"80800000000400143e543243dfcd8c02a12ad7ea371bd07bc91df900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000030200000001020101aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0d746573742d636f6e747261637408746573742d6e667401000000000000000000000000000000011201047465737400000009286f6b207472756529";
+        let bytes = decode_hex(input).unwrap();
+        let bytes_len = bytes.len();
+        let mut cursor = Cursor::new(bytes.as_ref());
+        let tx = StacksTransaction::deserialize(&mut cursor).unwrap();
+        assert_eq!(cursor.position() as usize, bytes_len);
+        assert_eq!(tx.post_condition_mode, TransactionPostConditionMode::Deny);
+        assert_eq!(tx.post_conditions.len(), 1);
+        assert_eq!(
+            tx.post_conditions[0],
+            TransactionPostCondition::Nonfungible(
+                PostConditionPrincipal::Origin,
+                AssetInfo {
+                    contract_address: StacksAddress::new(1, [0xaa; 20]),
+                    contract_name: "test-contract".into(),
+                    asset_name: "test-nft".into(),
+                },
+                ClarityValue::new_with_bytes(
+                    [
+                        0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        0x00, 0x00, 0x00, 0x00, 0x01,
+                    ],
+                    Value::UInt(1),
+                ),
+                NonfungibleConditionCode::MaybeSent,
+            )
+        );
+    }
+
+    #[test]
+    fn test_post_condition_originator_multiple() {
+        let input = b"80800000000400143e543243dfcd8c02a12ad7ea371bd07bc91df90000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003030000000200010500000000000007d0020101aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0d746573742d636f6e747261637408746573742d6e6674010000000000000000000000000000002a1201047465737400000009286f6b207472756529";
+        let bytes = decode_hex(input).unwrap();
+        let bytes_len = bytes.len();
+        let mut cursor = Cursor::new(bytes.as_ref());
+        let tx = StacksTransaction::deserialize(&mut cursor).unwrap();
+        assert_eq!(cursor.position() as usize, bytes_len);
+        assert_eq!(tx.post_condition_mode, TransactionPostConditionMode::Originator);
+        assert_eq!(tx.post_conditions.len(), 2);
     }
 }

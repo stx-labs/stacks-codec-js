@@ -393,6 +393,7 @@ impl NeonJsSerialize for NonfungibleConditionCode {
         let condition_name = match *self {
             NonfungibleConditionCode::Sent => "sent",
             NonfungibleConditionCode::NotSent => "not_sent",
+            NonfungibleConditionCode::MaybeSent => "maybe_sent",
         };
         let condition_code = cx.number(*self as u8);
         obj.set(cx, "condition_code", condition_code)?;
