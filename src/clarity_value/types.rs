@@ -19,6 +19,7 @@ pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
 pub const CONTRACT_MAX_NAME_LENGTH: usize = 40;
 
+#[derive(Debug, PartialEq)]
 pub struct ClarityValue {
     pub serialized_bytes: Option<Vec<u8>>,
     pub value: Value,
@@ -40,6 +41,7 @@ impl ClarityValue {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Value {
     Int(i128),
     UInt(u128),
@@ -233,10 +235,10 @@ impl Value {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StandardPrincipalData(pub u8, pub [u8; 20]);
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QualifiedContractIdentifier {
     pub issuer: StandardPrincipalData,
     pub name: ClarityName,

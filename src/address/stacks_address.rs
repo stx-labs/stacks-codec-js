@@ -7,6 +7,7 @@ pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
 pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26; // T
 pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21; // N
 
+#[derive(Debug, PartialEq)]
 pub struct StacksAddress {
     pub version: u8,
     pub hash160_bytes: [u8; 20],
