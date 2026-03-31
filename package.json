@@ -26,6 +26,9 @@
     "type": "git",
     "url": "git+https://github.com/stx-labs/stacks-codec-js.git"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "prettier": "@stacks/prettier-config",
   "devDependencies": {
     "@stacks/prettier-config": "^0.0.10",
@@ -36,7 +39,7 @@
     "typescript": "^4.6.3"
   },
   "dependencies": {
-    "@types/node": "^16.11.26",
+    "@types/node": "^20.14.0",
     "detect-libc": "^2.0.1"
   },
   "files": [
