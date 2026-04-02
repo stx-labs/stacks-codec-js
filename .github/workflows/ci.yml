@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.12.1
+        uses: styfle/cancel-workflow-action@0.13.1
         with:
           access_token: ${{ github.token }}
 
@@ -47,7 +47,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-x64-musl
           path: native/linux-x64-musl.node
@@ -82,7 +82,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-arm64-musl
           path: native/linux-arm64-musl.node
@@ -105,7 +105,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-x64-glibc
           path: native/linux-x64-glibc.node
@@ -139,7 +139,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-arm64-glibc
           path: native/linux-arm64-glibc.node
@@ -160,7 +160,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: win32-x64
           path: native/win32-x64.node
@@ -182,7 +182,7 @@ jobs:
   #       run: npm i
   #     - name: Build
   #       run: npm run build:cargo
-  #     - uses: actions/upload-artifact@v5
+  #     - uses: actions/upload-artifact@v7
   #       with:
   #         name: darwin-x64
   #         path: native/darwin-x64.node
@@ -208,7 +208,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: darwin-arm64
           path: native/darwin-arm64.node
@@ -223,7 +223,7 @@ jobs:
       - build_linux-arm64-glibc
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: linux-arm64-glibc
           path: native
@@ -253,7 +253,7 @@ jobs:
       - build_linux-arm64-musl
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: linux-arm64-musl
           path: native
@@ -278,12 +278,12 @@ jobs:
     permissions:
       contents: read
     container:
-      image: node:18-bookworm
+      image: node:20-bookworm
     needs:
       - build_linux-x64-glibc
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: linux-x64-glibc
           path: native
@@ -303,12 +303,12 @@ jobs:
     permissions:
       contents: read
     container:
-      image: node:18-alpine
+      image: node:20-alpine
     needs:
       - build_linux-x64-musl
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           name: linux-x64-musl
           path: native
@@ -331,7 +331,10 @@ jobs:
       - build_win-x64
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v8
         with:
           name: win32-x64
           path: native
@@ -354,7 +357,7 @@ jobs:
   #     - build_darwin-x64
   #   steps:
   #     - uses: actions/checkout@v6
-  #     - uses: actions/download-artifact@v6
+  #     - uses: actions/download-artifact@v8
   #       with:
   #         name: darwin-x64
   #         path: native
@@ -399,7 +402,7 @@ jobs:
       - name: Install deps
         run: npm ci --audit=false
 
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           path: native
 

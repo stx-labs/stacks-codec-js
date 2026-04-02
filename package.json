@@ -1,11 +1,20 @@
 {
   "name": "@stacks/codec",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Encoding & decoding functions for the Stacks blockchain exposed as a fast native Node.js addon",
-  "main": "index.js",
+  "main": "./index.js",
+  "module": "./index.mjs",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
+      "require": "./index.js"
+    }
+  },
   "scripts": {
     "build:cargo": "node build.js",
-    "build:ts": "tsc",
+    "build:ts": "tsc && esbuild index.ts --format=esm --platform=node --target=es2021 --outfile=index.mjs",
     "build": "npm run build:ts",
     "build:dev": "npm run build:ts && npm run build:cargo -- dev",
     "test:cargo": "cargo test",
@@ -26,23 +35,28 @@
     "type": "git",
     "url": "git+https://github.com/stx-labs/stacks-codec-js.git"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "prettier": "@stacks/prettier-config",
   "devDependencies": {
     "@stacks/prettier-config": "^0.0.10",
-    "@types/jest": "^27.4.1",
+    "@types/jest": "^29.5.14",
     "cargo-cp-artifact": "^0.1.9",
-    "jest": "^27.5.1",
-    "ts-jest": "^27.1.4",
-    "typescript": "^4.6.3"
+    "jest": "^29.7.0",
+    "ts-jest": "^29.3.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
   },
   "dependencies": {
-    "@types/node": "^16.11.26",
+    "@types/node": "^20.14.0",
     "detect-libc": "^2.0.1"
   },
   "files": [
     "README.md",
     "native/**/*",
     "index.js",
+    "index.mjs",
     "index.d.ts",
     "loader.js",
     "loader.d.ts"

@@ -11,7 +11,7 @@ used in hot paths, e.g. decoding raw Clarity values on the fly.
 _This project was bootstrapped by [create-neon](https://www.npmjs.com/package/create-neon)._
 
 ### Runtime Support
-* Node.js v16+
+* Node.js v20+
 
 ### Platform Support
 

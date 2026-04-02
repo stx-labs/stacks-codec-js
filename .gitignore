@@ -2,6 +2,7 @@ native
 node_modules
 target
 index.js
+index.mjs
 index.d.ts
 perf-tests/decode-stx-address/results
 perf-tests/decode-post-conditions/results
