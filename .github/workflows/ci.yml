@@ -397,7 +397,7 @@ jobs:
           node-version-file: '.nvmrc'
 
       - name: Upgrade npm
-        run: npm install -g npm@latest
+        run: npm install -g npm@~11.10.0
 
       - name: Install deps
         run: npm ci --audit=false
@@ -414,7 +414,16 @@ jobs:
           ls -R ./native
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ "$VERSION" == *-* ]]; then
+            # Extract the prerelease identifier (e.g. "next" from "9.0.0-next.30")
+            TAG="${VERSION#*-}"
+            TAG="${TAG%%.*}"
+            npm publish --provenance --access public --tag "$TAG"
+          else
+            npm publish --provenance --access public
+          fi
 
   github-release:
     if: ${{ github.event_name == 'workflow_dispatch' }}
