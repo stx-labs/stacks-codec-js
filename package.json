@@ -49,7 +49,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
-    "@types/node": "^20.14.0",
+    "@types/node": "^24.0.0",
     "detect-libc": "^2.0.1"
   },
   "files": [
