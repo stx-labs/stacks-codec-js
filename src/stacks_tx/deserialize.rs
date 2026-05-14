@@ -690,6 +690,7 @@ pub enum ClarityVersion {
     Clarity3 = 3,
     Clarity4 = 4,
     Clarity5 = 5,
+    Clarity6 = 6,
 }
 
 #[repr(u8)]
