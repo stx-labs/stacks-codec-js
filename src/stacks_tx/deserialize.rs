@@ -337,6 +337,7 @@ impl ClarityVersion {
             x if x == ClarityVersion::Clarity3 as u8 => Some(ClarityVersion::Clarity3),
             x if x == ClarityVersion::Clarity4 as u8 => Some(ClarityVersion::Clarity4),
             x if x == ClarityVersion::Clarity5 as u8 => Some(ClarityVersion::Clarity5),
+            x if x == ClarityVersion::Clarity6 as u8 => Some(ClarityVersion::Clarity6),
             _ => None,
         }
     }
