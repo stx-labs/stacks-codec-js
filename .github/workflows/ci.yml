@@ -14,21 +14,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.13.1
+        uses: styfle/cancel-workflow-action@d07a454dad7609a92316b57b23c9ccfd4f59af66 # 0.13.1
         with:
           access_token: ${{ github.token }}
 
   build_linux-x64-musl:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: x86_64-unknown-linux-musl
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: Download x86_64-linux-musl-cross toolchain
         run: curl -O -L -C - https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/x86_64-linux-musl-cross.tgz
       - name: Install x86_64-linux-musl-cross toolchain
@@ -47,7 +47,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-x64-musl
           path: native/linux-x64-musl.node
@@ -56,14 +56,14 @@ jobs:
   build_linux-arm64-musl:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: aarch64-unknown-linux-musl
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: Download aarch64-linux-musl-cross toolchain
         run: curl -O -L -C - https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/aarch64-linux-musl-cross.tgz
       - name: Install aarch64-linux-musl-cross toolchain
@@ -82,7 +82,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-arm64-musl
           path: native/linux-arm64-musl.node
@@ -93,19 +93,19 @@ jobs:
     container:
       image: rust
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: x86_64-unknown-linux-gnu
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: npm i
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-x64-glibc
           path: native/linux-x64-glibc.node
@@ -116,14 +116,14 @@ jobs:
     container:
       image: rust
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: aarch64-unknown-linux-gnu
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: Install cross compile deps
         run: |
           apt-get update && apt-get install -y g++-aarch64-linux-gnu libc6-dev-arm64-cross gcc-aarch64-linux-gnu qemu-user
@@ -139,7 +139,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: linux-arm64-glibc
           path: native/linux-arm64-glibc.node
@@ -148,19 +148,19 @@ jobs:
   build_win-x64:
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: x86_64-pc-windows-msvc
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
       - name: npm i
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: win32-x64
           path: native/win32-x64.node
@@ -170,19 +170,19 @@ jobs:
   #   if: ${{ false }}
   #   runs-on: macos-14
   #   steps:
-  #     - uses: actions/checkout@v6
-  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+  #     - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
   #       with:
   #         targets: x86_64-apple-darwin
-  #     - uses: actions/setup-node@v6
+  #     - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
   #       with:
   #         node-version-file: .nvmrc
-  #     - uses: Swatinem/rust-cache@v2
+  #     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
   #     - name: npm i
   #       run: npm i
   #     - name: Build
   #       run: npm run build:cargo
-  #     - uses: actions/upload-artifact@v7
+  #     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
   #       with:
   #         name: darwin-x64
   #         path: native/darwin-x64.node
@@ -191,14 +191,19 @@ jobs:
   build_darwin-arm64:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           targets: aarch64-apple-darwin
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
-      - uses: Swatinem/rust-cache@v2
+      # `cache-bin: false` avoids restoring a broken `~/.cargo/bin/` over the
+      # rustup proxies on macOS. See https://github.com/Swatinem/rust-cache/issues/341
+      # and https://github.com/actions/runner-images/issues/14097
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          cache-bin: 'false'
       - name: Configure macos-arm64 cross compile
         run: |
           echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
@@ -208,7 +213,7 @@ jobs:
         run: npm i
       - name: Build
         run: npm run build:cargo
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: darwin-arm64
           path: native/darwin-arm64.node
@@ -222,8 +227,8 @@ jobs:
     needs:
       - build_linux-arm64-glibc
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: linux-arm64-glibc
           path: native
@@ -231,7 +236,7 @@ jobs:
         run: npm i
       - name: Build js
         run: npm run build:ts
-      - uses: uraimo/run-on-arch-action@v2
+      - uses: uraimo/run-on-arch-action@ac33288c3728ca72563c97b8b88dda5a65a84448 # v2.8.1
         name: Run on arch
         with:
           arch: aarch64
@@ -252,8 +257,8 @@ jobs:
     needs:
       - build_linux-arm64-musl
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: linux-arm64-musl
           path: native
@@ -261,7 +266,7 @@ jobs:
         run: npm i
       - name: Build js
         run: npm run build:ts
-      - uses: uraimo/run-on-arch-action@v2
+      - uses: uraimo/run-on-arch-action@ac33288c3728ca72563c97b8b88dda5a65a84448 # v2.8.1
         name: Run on arch
         with:
           arch: aarch64
@@ -282,8 +287,8 @@ jobs:
     needs:
       - build_linux-x64-glibc
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: linux-x64-glibc
           path: native
@@ -307,8 +312,8 @@ jobs:
     needs:
       - build_linux-x64-musl
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: linux-x64-musl
           path: native
@@ -330,11 +335,11 @@ jobs:
     needs:
       - build_win-x64
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: win32-x64
           path: native
@@ -356,8 +361,8 @@ jobs:
   #   needs:
   #     - build_darwin-x64
   #   steps:
-  #     - uses: actions/checkout@v6
-  #     - uses: actions/download-artifact@v8
+  #     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+  #     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
   #       with:
   #         name: darwin-x64
   #         path: native
@@ -387,22 +392,22 @@ jobs:
       id-token: write
     steps:
       - name: Checkout tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: v${{ inputs.version }}
 
       - name: Use Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: '.nvmrc'
 
       - name: Upgrade npm
-        run: npm install -g npm@latest
+        run: npm install -g npm@~11.10.0
 
       - name: Install deps
         run: npm ci --audit=false
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: native
 
@@ -414,7 +419,16 @@ jobs:
           ls -R ./native
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ "$VERSION" == *-* ]]; then
+            # Extract the prerelease identifier (e.g. "next" from "9.0.0-next.30")
+            TAG="${VERSION#*-}"
+            TAG="${TAG%%.*}"
+            npm publish --provenance --access public --tag "$TAG"
+          else
+            npm publish --provenance --access public
+          fi
 
   github-release:
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -425,7 +439,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: v${{ inputs.version }}
 
