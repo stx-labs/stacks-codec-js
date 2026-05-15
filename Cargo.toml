@@ -1,8 +1,9 @@
 [package]
 name = "stacks-encoding-native-js"
 version = "0.1.0"
-license = "ISC"
-edition = "2018"
+# Native binary statically links GPL-3.0 code from stacks-network/stacks-core.
+license = "GPL-3.0"
+edition = "2021"
 exclude = ["index.node"]
 resolver = "2"
 
@@ -21,15 +22,35 @@ incremental = true
 crate-type = ["lib", "cdylib"]
 
 [dependencies]
-hex-simd = { version = "0.5.0" }
-simd-abstraction = { version = "0.5.0", features = ["alloc", "std"] }
-regex = "1.5"
+# === Upstream canonical wire-format implementations ===
+# These three crates are pinned via the helper script `scripts/update-stacks-core.sh`.
+# Together they own all on-chain consensus serialization for Stacks: transactions,
+# blocks (2.x + Nakamoto), Clarity values, post-conditions, and addresses.
+#
+# `stacks-codec` currently re-exports the StacksMessageCodec trait + helpers from
+# stacks-common. As upstream PRs (e.g. stacks-network/stacks-core#7200) land, more
+# of the actual wire-format types will move into this crate; the decode functions
+# here will follow them.
+#
+# IMPORTANT: keep the rev pin in sync across all three deps. The update script
+# enforces this.
+stacks-codec = { git = "https://github.com/stacks-network/stacks-core", rev = "7f7009b22306ec37b77f48f9987e2a8049797058" }
+stacks_common = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core", rev = "7f7009b22306ec37b77f48f9987e2a8049797058", default-features = false }
+clarity = { git = "https://github.com/stacks-network/stacks-core", rev = "7f7009b22306ec37b77f48f9987e2a8049797058", default-features = false }
+stackslib = { git = "https://github.com/stacks-network/stacks-core", rev = "7f7009b22306ec37b77f48f9987e2a8049797058" }
+
+# === This crate's own dependencies ===
 git-version = "0.3.5"
 lazy_static = "1.4.0"
 unicode-segmentation = "1.9.0"
 rand = "0.8.5"
-byteorder = "1.4.3"
+regex = "1.5"
+# Used by the PoX synthetic-event decoder (no upstream equivalent).
 bech32 = "0.11"
+# Hex helpers. Re-exported from stacks-common eventually, but we keep this so
+# the local `hex` helpers (with their SIMD path) stay available.
+hex = { version = "0.4", default-features = false, features = ["alloc"] }
+byteorder = "1.4.3"
 
 [dependencies.pprof]
 version = "0.9.1"
@@ -44,14 +65,14 @@ sha2 = { version = "0.10" }
 
 [dependencies.neon]
 version = "1.0.0"
-# git = "https://github.com/zone117x/neon"
-# rev = "bdb936a7fba8fb932fc61cbe529e06f65f75f9d9"
 default-features = false
 features = ["napi-6"]
 
 [dev-dependencies]
 flate2 = "1.0.22"
 criterion = "0.3"
+# Pull from upstream so we use the same hex helpers as the canonical impls.
+hex = "0.4"
 
 [features]
 profiling = ["pprof"]

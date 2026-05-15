@@ -1,33 +1,53 @@
-pub fn decode_hex<T: AsRef<[u8]>>(data: T) -> Result<Box<[u8]>, hex_simd::Error> {
+//! Hex helpers used by the JS bindings.
+//!
+//! Historically this module wrapped a SIMD-accelerated `hex-simd` crate for
+//! throughput, but those versions were yanked from crates.io. Upstream
+//! `stacks-core` standardizes on the `hex` crate, so we do the same: the
+//! perf delta is negligible at typical message sizes and the dep tree is
+//! simpler.
+//!
+//! Notable difference from `hex::encode`: `encode_hex` here adds a `0x` prefix,
+//! since every consumer of these helpers in the bindings expects that prefix
+//! (it matches the JS-facing JSON shape).
+
+#[derive(Debug)]
+pub struct DecodeError(pub hex::FromHexError);
+
+impl std::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl From<hex::FromHexError> for DecodeError {
+    fn from(e: hex::FromHexError) -> Self {
+        DecodeError(e)
+    }
+}
+
+pub fn decode_hex<T: AsRef<[u8]>>(data: T) -> Result<Box<[u8]>, DecodeError> {
     let data_ref = data.as_ref();
     let data_len = data_ref.len();
     if data_len == 0 {
-        Ok(Box::new([0u8; 0]))
-    } else if data_len >= 2 && data_ref[0] == '0' as u8 && data_ref[1] == 'x' as u8 {
-        hex_simd::decode_to_boxed_bytes(&data_ref[2..])
-    } else {
-        hex_simd::decode_to_boxed_bytes(data_ref)
+        return Ok(Box::new([0u8; 0]));
     }
+    let payload = if data_len >= 2 && data_ref[0] == b'0' && data_ref[1] == b'x' {
+        &data_ref[2..]
+    } else {
+        data_ref
+    };
+    Ok(hex::decode(payload)?.into_boxed_slice())
 }
 
 pub fn encode_hex(data: &[u8]) -> Box<str> {
-    let mut uninit_buf = unsafe { simd_abstraction::tools::alloc_uninit_bytes(data.len() * 2 + 2) };
-    let uninit_slice = &mut *uninit_buf;
-    uninit_slice[0].write(b'0');
-    uninit_slice[1].write(b'x');
-    let dest_buf = hex_simd::OutBuf::from_uninit_mut(&mut uninit_slice[2..]);
-    hex_simd::encode(data, dest_buf, hex_simd::AsciiCase::Lower).unwrap();
-
-    let len = uninit_buf.len();
-    let ptr = Box::into_raw(uninit_buf).cast::<u8>();
-    unsafe {
-        let buf = core::slice::from_raw_parts_mut(ptr, len);
-        Box::from_raw(core::str::from_utf8_unchecked_mut(buf))
-    }
+    let mut out = String::with_capacity(2 + data.len() * 2);
+    out.push_str("0x");
+    out.push_str(&hex::encode(data));
+    out.into_boxed_str()
 }
 
 pub fn encode_hex_no_prefix(data: &[u8]) -> Box<str> {
-    hex_simd::encode_to_boxed_str(data, hex_simd::AsciiCase::Lower)
+    hex::encode(data).into_boxed_str()
 }
 
 #[cfg(test)]
@@ -40,5 +60,17 @@ mod tests {
         let hex_str = encode_hex(input);
         let repr = hex_str.to_string();
         assert_eq!(repr, "0x68656c6c6f20776f726c64");
+    }
+
+    #[test]
+    fn test_hex_decode_with_prefix() {
+        let decoded = decode_hex("0x68656c6c6f").unwrap();
+        assert_eq!(&*decoded, b"hello");
+    }
+
+    #[test]
+    fn test_hex_decode_without_prefix() {
+        let decoded = decode_hex("68656c6c6f").unwrap();
+        assert_eq!(&*decoded, b"hello");
     }
 }
