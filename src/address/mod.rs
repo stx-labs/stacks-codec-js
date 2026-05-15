@@ -96,56 +96,22 @@ pub fn decode_stacks_address(mut cx: FunctionContext) -> JsResult<JsArray> {
     Ok(array_resp)
 }
 
-// Clarity wire-format type-prefix bytes we accept here. The `Buffer` arm is a
-// historical alternative encoding used by some callers: a `0x02` byte followed
-// by a raw `version || hash160` pair (NOT a real Clarity buffer, which would
-// carry a u32 length prefix). Principal-prefixed inputs go through upstream's
-// canonical `PrincipalData::consensus_deserialize`.
-const TYPE_PREFIX_BUFFER: u8 = 2;
-const TYPE_PREFIX_PRINCIPAL_STANDARD: u8 = 5;
-const TYPE_PREFIX_PRINCIPAL_CONTRACT: u8 = 6;
-
 fn decode_clarity_value_to_principal_inner(arg_bytes: &[u8]) -> Result<String, String> {
-    let prefix_byte = *arg_bytes
-        .first()
-        .ok_or_else(|| "Empty input: missing Clarity type prefix byte".to_string())?;
-
-    let addr = match prefix_byte {
-        TYPE_PREFIX_BUFFER => {
-            let body = &arg_bytes[1..];
-            if body.len() < 21 {
-                return Err(format!(
-                    "Buffer-encoded principal needs >=21 bytes after prefix, got {}",
-                    body.len()
-                ));
-            }
-            let version = body[0];
-            let mut data = [0u8; 20];
-            data.copy_from_slice(&body[1..21]);
-            c32_address(version, &data)
+    let mut cursor: Cursor<&[u8]> = Cursor::new(arg_bytes);
+    let principal = PrincipalData::consensus_deserialize(&mut cursor)
+        .map_err(|e| format!("Failed to deserialize principal: {}", e))?;
+    let addr = match principal {
+        PrincipalData::Standard(p) => {
+            let (version, bytes) = p.destruct();
+            c32_address(version, &bytes)
                 .map_err(|e| format!("Failed to encode principal to c32 address: {}", e))?
         }
-        TYPE_PREFIX_PRINCIPAL_STANDARD | TYPE_PREFIX_PRINCIPAL_CONTRACT => {
-            let mut cursor: Cursor<&[u8]> = Cursor::new(arg_bytes);
-            let principal = PrincipalData::consensus_deserialize(&mut cursor)
-                .map_err(|e| format!("Failed to deserialize principal: {}", e))?;
-            match principal {
-                PrincipalData::Standard(p) => {
-                    let (version, bytes) = p.destruct();
-                    c32_address(version, &bytes).map_err(|e| {
-                        format!("Failed to encode principal to c32 address: {}", e)
-                    })?
-                }
-                PrincipalData::Contract(qci) => {
-                    let (version, bytes) = qci.issuer.destruct();
-                    let c32_addr = c32_address(version, &bytes).map_err(|e| {
-                        format!("Failed to encode principal to c32 address: {}", e)
-                    })?;
-                    format!("{}.{}", c32_addr, qci.name.as_str())
-                }
-            }
+        PrincipalData::Contract(qci) => {
+            let (version, bytes) = qci.issuer.destruct();
+            let c32_addr = c32_address(version, &bytes)
+                .map_err(|e| format!("Failed to encode principal to c32 address: {}", e))?;
+            format!("{}.{}", c32_addr, qci.name.as_str())
         }
-        _ => return Err(format!("Type prefix {} to is not a principal", prefix_byte)),
     };
     Ok(addr)
 }

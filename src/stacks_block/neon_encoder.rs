@@ -7,6 +7,7 @@ use crate::neon_util::{Encode, NeonJsSerialize};
 use super::deserialize::{
     BitVec, NakamotoBlock, NakamotoBlockHeader, StacksBlock, StacksBlockHeader, StacksWorkScore,
 };
+use stacks_common::util::vrf::VRFProof;
 
 impl NeonJsSerialize for Encode<'_, NakamotoBlock> {
     fn neon_js_serialize(
@@ -176,7 +177,7 @@ impl NeonJsSerialize for Encode<'_, StacksBlockHeader> {
         Encode(&header.total_work).neon_js_serialize(cx, &total_work_obj, &())?;
         obj.set(cx, "total_work", total_work_obj)?;
 
-        let proof = cx.string(encode_hex(&header.proof.0));
+        let proof = cx.string(encode_hex(&Encode(&header.proof).vrf_to_bytes()));
         obj.set(cx, "proof", proof)?;
 
         let parent_block = cx.string(encode_hex(&header.parent_block.0));
@@ -194,13 +195,19 @@ impl NeonJsSerialize for Encode<'_, StacksBlockHeader> {
         let state_index_root = cx.string(encode_hex(&header.state_index_root.0));
         obj.set(cx, "state_index_root", state_index_root)?;
 
-        let microblock_pubkey_hash = cx.string(encode_hex(&header.microblock_pubkey_hash));
+        let microblock_pubkey_hash = cx.string(encode_hex(&header.microblock_pubkey_hash.0));
         obj.set(cx, "microblock_pubkey_hash", microblock_pubkey_hash)?;
 
-        let block_hash = cx.string(encode_hex(&header.block_hash()));
+        let block_hash = cx.string(encode_hex(&header.block_hash().0));
         obj.set(cx, "block_hash", block_hash)?;
 
         Ok(())
+    }
+}
+
+impl Encode<'_, VRFProof> {
+    fn vrf_to_bytes(&self) -> [u8; 80] {
+        self.0.to_bytes()
     }
 }
 

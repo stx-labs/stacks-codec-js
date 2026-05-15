@@ -31,8 +31,15 @@ along the way.
   `neon_util::Encode<'a, T>` (`#[repr(transparent)]`, holds `&'a T`) so we can
   implement `NeonJsSerialize` for upstream types without violating the orphan
   rule. JS-facing object shapes and TypeScript entry points are unchanged.
-  The only deliberate exception is the Stacks 2.x block header (see the
-  `stacks_block` row below).
+- **Phase 3 (complete):** All consensus-decoding paths now align with the
+  validation rules upstream enforces. Stacks 2.x and Nakamoto blocks both go
+  through `<StacksBlock | NakamotoBlock as StacksMessageCodec>::consensus_deserialize`,
+  which means VRF proofs must be valid curve points, zero-tx blocks are
+  rejected, tx Merkle roots must match, transaction ids must be unique, and
+  only one coinbase per block is permitted. The legacy `0x02 || version ||
+  hash160` shorthand previously accepted by `decode_clarity_value_to_principal`
+  was removed; only real Clarity principal-prefixed values are now accepted.
+  No hand-rolled consensus parsing remains in this crate.
 
 **Phase 2 completed in this repo (snapshot for handoff)**
 
@@ -42,26 +49,37 @@ along the way.
 | `src/clarity_value/` | Neon entry points parse `clarity::vm::types::Value` directly (`deserialize_read` / codec). `neon_encoder.rs` walks the upstream tree; `repr_string` / `type_signature_string` match historical JS output. The legacy `types.rs` / `deserialize.rs` have been deleted — no local shadow tree remains. |
 | `src/post_condition/` | `deserialize.rs` re-exports upstream post-condition types; `deserialize_post_condition` wraps `consensus_deserialize`. `neon_encoder.rs` implements `NeonJsSerialize` for `Encode<'_, …>`. |
 | `src/stacks_tx/` | `deserialize.rs` is a thin re-export + `deserialize_transaction`. `neon_encoder.rs` rewritten for upstream payloads, auth, multisigs, coinbase fan-out, microblocks, post-condition buffer re-serialization. `mod.rs` hashes txid and calls `Encode(&tx)`. **Note:** `clarity_version` on versioned smart-contract payloads uses an explicit map from `clarity::vm::ClarityVersion` to the **1-based wire byte** (`Clarity2` → `2`), not `as u8` on the enum. |
-| `src/address/` | `neon_encoder.rs` shares `NeonJsSerialize` for upstream `StacksAddress` / principal types. `decode_clarity_value_to_principal_inner` parses principal-prefixed inputs through upstream `clarity::vm::types::PrincipalData::consensus_deserialize`; the legacy buffer-prefixed (`0x02 || version || hash160`) shorthand is still handled manually, since it isn't a real Clarity buffer encoding. |
-| `src/stacks_block/` | Nakamoto path: `deserialize_nakamoto_block` builds upstream `NakamotoBlock` (header via codec, tx vector read loosely — same rationale as Phase 1: no duplicate-txid / zero-tx / merkle checks from upstream block parsers). Stacks 2.x: **local shadow** `StacksBlockHeader` still used so **any 80-byte VRF blob** is accepted (upstream validates curve points). `neon_encoder.rs`: `Encode` wrappers; `BitVec<4000>` exposes wire-identical `data` hex and an MSB-first `bits` array (historical JS behavior; differs from upstream `BitVec::get` LSB order). |
+| `src/address/` | `neon_encoder.rs` shares `NeonJsSerialize` for upstream `StacksAddress` / principal types. `decode_clarity_value_to_principal_inner` runs `clarity::vm::types::PrincipalData::consensus_deserialize` directly; the legacy `0x02 || version || hash160` shorthand is no longer accepted. `bitcoin_address.rs` was deleted; `mod.rs` uses upstream `LegacyBitcoinAddress` and `legacy_address_type_to_version_byte` directly. The local `StacksAddress` struct and `AddressHashMode` enum were also deleted in favor of `stacks_common::types::chainstate::StacksAddress`. |
+| `src/stacks_block/` | Both Nakamoto and Stacks 2.x paths go through upstream `<NakamotoBlock \| StacksBlock as StacksMessageCodec>::consensus_deserialize`. All shadow types (`StacksBlockHeader`, `StacksWorkScore`, `VRFProof`, `StacksBlock`) were deleted. `block_hash()` is whatever upstream returns — including the `FIRST_STACKS_BLOCK_HASH` short-circuit on `total_work.work == 0`. `neon_encoder.rs`: `Encode` wrappers; `BitVec<4000>` exposes wire-identical `data` hex and an MSB-first `bits` array (historical JS behavior; differs from upstream `BitVec::get` LSB order). |
 | `src/pox_events/` | **Migrated:** `decode_pox_synthetic_event` walks `clarity::vm::types::Value`; `decode_pox_event` deserializes with `<Value as StacksMessageCodec>::consensus_deserialize`. PoX logic is still bespoke; only the Clarity representation is upstream. |
 
-**Tests:** `cargo test --lib` and `npm test` (Jest) are green (41 + 41 tests respectively). `stacks_tx` post-condition unit tests expect `TransactionPostConditionMode::Originator` where the wire byte is `0x03`, matching `stackslib`.
+**Behavior changes vs. legacy permissive parser**
 
-**Residual intentional locals (not bugs)**
+Switching the block paths and the principal helper to upstream's strict
+codecs introduces the following observable changes for JS callers:
 
-1. **`stacks_block` Stacks 2.x header** — read field-by-field rather than via
-   upstream `StacksBlockHeader::consensus_deserialize` so any 80-byte VRF blob
-   is accepted (upstream validates curve points; this crate historically did
-   not). Block-body tx vectors are also read loosely (no duplicate-txid /
-   zero-tx / merkle checks).
-2. **`address::decode_clarity_value_to_principal_inner` buffer arm** — accepts
-   the legacy `0x02 || version || hash160` shorthand that some callers use.
-   This is **not** a real Clarity buffer (which carries a u32 length prefix)
-   and therefore cannot go through `Value::deserialize_read`.
+1. `decodeStacksBlock` (2.x) now throws on invalid VRF proofs (must be a
+   valid Edwards curve point), zero-transaction blocks, duplicate tx-ids,
+   tx-Merkle-root mismatches, multiple-coinbase blocks, and transactions
+   with `OffChainOnly` anchor mode.
+2. `decodeNakamotoBlock` now throws on the equivalent Nakamoto-level
+   structural violations (duplicate tx-ids, tenure-change rules, etc.).
+3. `decodeClarityValueToPrincipal` now requires a real principal-prefixed
+   Clarity value (`0x05` or `0x06`); the legacy `0x02 || version ||
+   hash160` shorthand is no longer accepted.
+4. `decodeStacksBlock` returns the `FIRST_STACKS_BLOCK_HASH` constant for
+   blocks with `total_work.work == 0` (matching upstream's boot-block
+   short-circuit); the legacy code always recomputed the hash unconditionally.
+
+**Tests:** `cargo test --lib` and `npm test` (Jest) are green (41 Rust + 42
+Jest tests). The Jest 2.x test suite now exercises the strict-rejection
+path; happy-path coverage for 2.x requires a real mainnet block fixture
+(not yet captured in `tests/fixtures/`). `stacks_tx` post-condition unit
+tests expect `TransactionPostConditionMode::Originator` where the wire
+byte is `0x03`, matching `stackslib`.
 
 A `grep` for `convert_`, hand-rolled `XxxYy::deserialize` impls, or shadow
-structs outside these two exceptions should now come up clean.
+structs comes up clean.
 
 ## The pattern
 
@@ -297,40 +315,48 @@ decode for every payload variant in the wire format.
 
 ## Reference module: `src/stacks_block/`
 
-*(Phase 1 write-up; **Phase 2** replaced the Nakamoto local structs — see the
-snapshot table at the top.)*
+Phase 3 finished the block migration. Both paths now delegate fully:
 
-Still accurate today:
+- `deserialize_nakamoto_block` is one line on top of
+  `<NakamotoBlock as StacksMessageCodec>::consensus_deserialize`.
+- `deserialize_stacks_block` (2.x) is one line on top of
+  `<StacksBlock as StacksMessageCodec>::consensus_deserialize`.
 
-- **Stacks 2.x header:** read field-by-field (not upstream
-  `StacksBlockHeader::consensus_deserialize`) so any **80-byte VRF blob** is
-  accepted; local `block_hash()` hashing remains unconditional (no genesis
-  short-circuit like upstream).
-- **Block body:** length-prefixed tx vector parsed with upstream
-  `StacksTransaction::consensus_deserialize` only — **not** upstream’s full
-  `StacksBlock` / `NakamotoBlock` parser (avoids zero-tx / merkle / duplicate
-  txid rules that this crate never enforced).
-- **Phase 2:** Nakamoto path returns upstream `NakamotoBlock` /
-  `NakamotoBlockHeader`; txs are upstream `Vec<StacksTransaction>` (no
-  `convert_transaction`). Neon uses `Encode<'_, _>`; upstream `BitVec<4000>`
-  is encoded with wire-true `data` hex and an **MSB-first** `bits` array.
+`StacksBlockHeader`, `StacksWorkScore`, `VRFProof`, and the local 2.x
+`StacksBlock` struct were deleted. `neon_encoder.rs` walks upstream values
+via `Encode<'_, _>` wrappers; the `BitVec<4000>` encoder is still custom
+(wire-identical `data` hex and an **MSB-first** `bits` array — historical
+JS contract that differs from upstream `BitVec::get` LSB ordering).
 
-At last doc update, `cargo test --lib` and `npm test` were green, including
-`nakamoto-block` against known mainnet hashes.
+`block_hash` for 2.x headers now matches upstream exactly, including the
+`FIRST_STACKS_BLOCK_HASH` short-circuit when `total_work.work == 0` (the
+legacy code always recomputed the hash). See the **Behavior changes**
+section at the top for the full list of newly strict rejections (invalid
+VRF, zero-tx, merkle mismatch, duplicate tx-id, multi-coinbase,
+`OffChainOnly` anchor mode).
+
+`cargo test --lib` and `npm test` are green; `nakamoto-block` still passes
+against known mainnet hashes. The synthetic Stacks 2.x test was rewritten
+to assert the strict rejections — a real mainnet 2.x fixture would be
+needed to restore happy-path coverage for that path.
+
 ## Future cleanup pass
 
-Phase 2 is complete. `post_condition`, `stacks_tx`, `stacks_block` (Nakamoto
-path), `pox_events`, `clarity_value`, and `address` all emit from upstream
-types via `Encode<'_, T>`. The only remaining hand-rolled consensus parsing
-matches the **Residual intentional locals** list at the top:
+The migration is now feature-complete. A `grep` for `convert_`, hand-rolled
+`XxxYy::deserialize` impls, or shadow consensus structs comes up clean.
+The only non-trivial bespoke logic that remains in this crate is:
 
-- `stacks_block`: Stacks 2.x header (permissive 80-byte VRF) and the loose
-  block-body tx vector.
-- `address`: the legacy `0x02 || version || hash160` shorthand inside
-  `decode_clarity_value_to_principal_inner` (not a real Clarity buffer).
+- The JS-specific `BitVec<4000>` Neon encoder (MSB-first `bits` array — a
+  documented JS-contract difference vs. upstream `BitVec::get`).
+- The JS-specific Clarity `repr_string` / `type_signature_string`
+  formatters in `clarity_value::neon_encoder` (intentionally differ from
+  `clarity::vm::types::Value`'s `fmt::Display` to match historical Stacks
+  API responses).
+- The PoX synthetic-event walker in `pox_events::decode` (no upstream
+  equivalent — PoX events are a Stacks-API shape, not a consensus type).
 
-A `grep` for `convert_`, hand-rolled `XxxYy::deserialize` impls, or shadow
-structs outside those two exceptions comes up clean today.
+These are JS-facing presentation concerns, not consensus parsing, and have
+no upstream counterpart to delegate to.
 
 ## CI considerations
 
