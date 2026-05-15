@@ -1,11 +1,46 @@
-use byteorder::{BigEndian, ReadBytesExt};
-use std::io::{Cursor, Read};
+//! Stacks transaction deserialization.
+//!
+//! The wire-format parser is delegated to upstream's canonical
+//! `<StacksTransaction as StacksMessageCodec>::consensus_deserialize` in
+//! `stackslib`. This module keeps the local enum / struct definitions because
+//! the Neon encoder operates on them directly, and converts the upstream value
+//! tree into the local one at the boundary.
+
+use std::io::Cursor;
+
+use blockstack_lib::chainstate::stacks::{
+    CoinbasePayload as UpstreamCoinbasePayload,
+    MultisigSpendingCondition as UpstreamMultisigSpendingCondition,
+    OrderIndependentMultisigSpendingCondition as UpstreamOrderIndependentMultisigSpendingCondition,
+    SinglesigHashMode as UpstreamSinglesigHashMode,
+    SinglesigSpendingCondition as UpstreamSinglesigSpendingCondition,
+    StacksMicroblockHeader as UpstreamStacksMicroblockHeader,
+    StacksTransaction as UpstreamStacksTransaction, TenureChangeCause as UpstreamTenureChangeCause,
+    TenureChangePayload as UpstreamTenureChangePayload, TransactionAnchorMode as UpstreamAnchorMode,
+    TransactionAuth as UpstreamTransactionAuth, TransactionAuthField as UpstreamTransactionAuthField,
+    TransactionContractCall as UpstreamTransactionContractCall,
+    TransactionPayload as UpstreamTransactionPayload,
+    TransactionPostConditionMode as UpstreamPostConditionMode,
+    TransactionPublicKeyEncoding as UpstreamPublicKeyEncoding,
+    TransactionSmartContract as UpstreamTransactionSmartContract,
+    TransactionSpendingCondition as UpstreamTransactionSpendingCondition,
+    TransactionVersion as UpstreamTransactionVersion,
+};
+use blockstack_lib::util_lib::strings::StacksString as UpstreamStacksString;
+use clarity::vm::types::PrincipalData as UpstreamPrincipalData;
+use clarity::vm::ClarityVersion as UpstreamClarityVersion;
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksAddress as UpstreamStacksAddress;
 
 use crate::address::stacks_address::StacksAddress;
-use crate::clarity_value::deserialize::TypePrefix;
+use crate::clarity_value::deserialize::convert_clarity_value;
 use crate::clarity_value::types::{ClarityName, ClarityValue};
-use crate::post_condition::deserialize::TransactionPostCondition;
+use crate::post_condition::deserialize::{
+    convert_post_condition, TransactionPostCondition,
+};
 use crate::serialize_util::DeserializeError;
+
+// ===== Local types (kept verbatim — the Neon encoder operates on these) =====
 
 pub struct StacksTransaction {
     pub version: TransactionVersion,
@@ -16,565 +51,6 @@ pub struct StacksTransaction {
     pub post_condition_mode: TransactionPostConditionMode,
     pub post_conditions: Vec<TransactionPostCondition>,
     pub payload: TransactionPayload,
-}
-
-impl StacksTransaction {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let version_u8 = fd.read_u8()?;
-        let chain_id: u32 = fd.read_u32::<BigEndian>()?;
-        let auth = TransactionAuth::deserialize(fd)?;
-        let anchor_mode_u8 = fd.read_u8()?;
-
-        let cursor_pos = fd.position() as usize;
-        let post_condition_mode_u8 = fd.read_u8()?;
-        let post_conditions: Vec<TransactionPostCondition> = {
-            let len = fd.read_u32::<BigEndian>()?;
-            let mut results: Vec<TransactionPostCondition> = Vec::with_capacity(len as usize);
-            for _ in 0..len {
-                results.push(TransactionPostCondition::deserialize(fd)?);
-            }
-            results
-        };
-        let post_conditions_serialized = fd.get_ref()[cursor_pos..fd.position() as usize].to_vec();
-
-        let payload = TransactionPayload::deserialize(fd)?;
-
-        let version = if (version_u8 & 0x80) == 0 {
-            TransactionVersion::Mainnet
-        } else {
-            TransactionVersion::Testnet
-        };
-
-        let anchor_mode = match anchor_mode_u8 {
-            x if x == TransactionAnchorMode::OffChainOnly as u8 => {
-                TransactionAnchorMode::OffChainOnly
-            }
-            x if x == TransactionAnchorMode::OnChainOnly as u8 => {
-                TransactionAnchorMode::OnChainOnly
-            }
-            x if x == TransactionAnchorMode::Any as u8 => TransactionAnchorMode::Any,
-            _ => {
-                return Err(format!(
-                    "Failed to parse transaction: invalid anchor mode {}",
-                    anchor_mode_u8
-                ))?;
-            }
-        };
-
-        let post_condition_mode = match post_condition_mode_u8 {
-            x if x == TransactionPostConditionMode::Allow as u8 => {
-                TransactionPostConditionMode::Allow
-            }
-            x if x == TransactionPostConditionMode::Deny as u8 => {
-                TransactionPostConditionMode::Deny
-            }
-            x if x == TransactionPostConditionMode::Originator as u8 => {
-                TransactionPostConditionMode::Originator
-            }
-            _ => {
-                return Err(format!(
-                    "Failed to parse transaction: invalid post-condition mode {}",
-                    post_condition_mode_u8
-                ))?;
-            }
-        };
-
-        Ok(StacksTransaction {
-            version,
-            chain_id,
-            auth,
-            anchor_mode,
-            post_conditions_serialized,
-            post_condition_mode,
-            post_conditions,
-            payload,
-        })
-    }
-}
-
-impl TransactionAuth {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let type_id = fd.read_u8()?;
-        let auth = match type_id {
-            x if x == TransactionAuthFlags::AuthStandard as u8 => {
-                let origin_auth = TransactionSpendingCondition::deserialize(fd)?;
-                TransactionAuth::Standard(origin_auth)
-            }
-            x if x == TransactionAuthFlags::AuthSponsored as u8 => {
-                let origin_auth = TransactionSpendingCondition::deserialize(fd)?;
-                let sponsor_auth = TransactionSpendingCondition::deserialize(fd)?;
-                TransactionAuth::Sponsored(origin_auth, sponsor_auth)
-            }
-            _ => {
-                return Err(format!(
-                    "Failed to parse transaction authorization: unrecognized auth flags {}",
-                    type_id
-                ))?;
-            }
-        };
-        Ok(auth)
-    }
-}
-
-impl TransactionSpendingCondition {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let hash_mode_u8 = fd.read_u8()?;
-        fd.set_position(fd.position() - 1);
-        let cond = {
-            if SinglesigHashMode::from_u8(hash_mode_u8).is_some() {
-                let cond = SinglesigSpendingCondition::deserialize(fd)?;
-                TransactionSpendingCondition::Singlesig(cond)
-            } else if MultisigHashMode::from_u8(hash_mode_u8).is_some() {
-                let cond = MultisigSpendingCondition::deserialize(fd)?;
-                TransactionSpendingCondition::Multisig(cond)
-            } else {
-                return Err(format!(
-                    "Failed to parse spending condition: invalid hash mode {}",
-                    hash_mode_u8
-                ))?;
-            }
-        };
-
-        Ok(cond)
-    }
-}
-
-impl SinglesigSpendingCondition {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let hash_mode_u8 = fd.read_u8()?;
-        let hash_mode = SinglesigHashMode::from_u8(hash_mode_u8).ok_or(format!(
-            "Failed to parse singlesig spending condition: unknown hash mode {}",
-            hash_mode_u8
-        ))?;
-
-        let mut signer = [0u8; 20];
-        fd.read_exact(&mut signer)?;
-
-        let nonce = fd.read_u64::<BigEndian>()?;
-        let tx_fee = fd.read_u64::<BigEndian>()?;
-
-        let key_encoding_u8 = fd.read_u8()?;
-        let key_encoding =
-            TransactionPublicKeyEncoding::from_u8(key_encoding_u8).ok_or(format!(
-                "Failed to parse singlesig spending condition: unknown key encoding {}",
-                key_encoding_u8
-            ))?;
-
-        let mut signature_bytes = [0u8; 65];
-        fd.read_exact(&mut signature_bytes)?;
-        let signature = MessageSignature(signature_bytes);
-
-        // sanity check -- must be compressed if we're using p2wpkh
-        if hash_mode == SinglesigHashMode::P2WPKH
-            && key_encoding != TransactionPublicKeyEncoding::Compressed
-        {
-            return Err(format!("Failed to parse singlesig spending condition: incomaptible hash mode and key encoding"))?;
-        }
-
-        Ok(SinglesigSpendingCondition {
-            signer: signer,
-            nonce: nonce,
-            tx_fee: tx_fee,
-            hash_mode: hash_mode,
-            key_encoding: key_encoding,
-            signature: signature,
-        })
-    }
-}
-
-impl MultisigSpendingCondition {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let hash_mode_u8 = fd.read_u8()?;
-        let hash_mode = MultisigHashMode::from_u8(hash_mode_u8).ok_or(format!(
-            "Failed to parse multisig spending condition: unknown hash mode {}",
-            hash_mode_u8
-        ))?;
-
-        let mut signer = [0u8; 20];
-        fd.read_exact(&mut signer)?;
-        let nonce = fd.read_u64::<BigEndian>()?;
-        let tx_fee = fd.read_u64::<BigEndian>()?;
-        let fields: Vec<TransactionAuthField> = {
-            let len = fd.read_u32::<BigEndian>()?;
-            let mut results: Vec<TransactionAuthField> = Vec::with_capacity(len as usize);
-            for _ in 0..len {
-                results.push(TransactionAuthField::deserialize(fd)?);
-            }
-            results
-        };
-
-        let signatures_required = fd.read_u16::<BigEndian>()?;
-
-        // read and decode _exactly_ num_signatures signature buffers
-        let mut num_sigs_given: u16 = 0;
-        let mut have_uncompressed = false;
-        for f in fields.iter() {
-            match *f {
-                TransactionAuthField::Signature(ref key_encoding, _) => {
-                    num_sigs_given = num_sigs_given.checked_add(1).ok_or(format!(
-                        "Failed to parse multisig spending condition: too many signatures"
-                    ))?;
-                    if *key_encoding == TransactionPublicKeyEncoding::Uncompressed {
-                        have_uncompressed = true;
-                    }
-                }
-                TransactionAuthField::PublicKey(ref pubk) => {
-                    if !pubk.compressed {
-                        have_uncompressed = true;
-                    }
-                }
-            };
-        }
-
-        // must all be compressed if we're using P2WSH
-        if have_uncompressed && hash_mode == MultisigHashMode::P2WSH {
-            return Err(format!(
-                "Failed to parse multisig spending condition: expected compressed keys only",
-            ))?;
-        }
-
-        Ok(MultisigSpendingCondition {
-            signer,
-            nonce,
-            tx_fee,
-            hash_mode,
-            fields,
-            signatures_required,
-        })
-    }
-}
-
-impl TransactionAuthField {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let field_id = fd.read_u8()?;
-        let field = match field_id {
-            x if x == TransactionAuthFieldID::PublicKeyCompressed as u8 => {
-                let mut pubkey_bytes = [0u8; 33];
-                fd.read_exact(&mut pubkey_bytes)?;
-                let pubkey_buf = StacksPublicKeyBuffer(pubkey_bytes);
-                TransactionAuthField::PublicKey(Secp256k1PublicKey {
-                    compressed: true,
-                    key: pubkey_buf,
-                })
-            }
-            x if x == TransactionAuthFieldID::PublicKeyUncompressed as u8 => {
-                let mut pubkey_bytes = [0u8; 33];
-                fd.read_exact(&mut pubkey_bytes)?;
-                let pubkey_buf = StacksPublicKeyBuffer(pubkey_bytes);
-                TransactionAuthField::PublicKey(Secp256k1PublicKey {
-                    compressed: false,
-                    key: pubkey_buf,
-                })
-            }
-            x if x == TransactionAuthFieldID::SignatureCompressed as u8 => {
-                let mut sig_bytes = [0u8; 65];
-                fd.read_exact(&mut sig_bytes)?;
-                let sig = MessageSignature(sig_bytes);
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Compressed, sig)
-            }
-            x if x == TransactionAuthFieldID::SignatureUncompressed as u8 => {
-                let mut sig_bytes = [0u8; 65];
-                fd.read_exact(&mut sig_bytes)?;
-                let sig = MessageSignature(sig_bytes);
-                TransactionAuthField::Signature(TransactionPublicKeyEncoding::Uncompressed, sig)
-            }
-            _ => {
-                return Err(format!(
-                    "Failed to parse auth field: unkonwn auth field ID {}",
-                    field_id
-                ))?;
-            }
-        };
-        Ok(field)
-    }
-}
-
-impl SinglesigHashMode {
-    pub fn from_u8(n: u8) -> Option<SinglesigHashMode> {
-        match n {
-            x if x == SinglesigHashMode::P2PKH as u8 => Some(SinglesigHashMode::P2PKH),
-            x if x == SinglesigHashMode::P2WPKH as u8 => Some(SinglesigHashMode::P2WPKH),
-            _ => None,
-        }
-    }
-}
-
-impl MultisigHashMode {
-    pub fn from_u8(n: u8) -> Option<MultisigHashMode> {
-        match n {
-            x if x == MultisigHashMode::P2SH as u8 => Some(MultisigHashMode::P2SH),
-            x if x == MultisigHashMode::P2SHNonSequential as u8 => {
-                Some(MultisigHashMode::P2SHNonSequential)
-            }
-            x if x == MultisigHashMode::P2WSH as u8 => Some(MultisigHashMode::P2WSH),
-            x if x == MultisigHashMode::P2WSHNonSequential as u8 => {
-                Some(MultisigHashMode::P2WSHNonSequential)
-            }
-            _ => None,
-        }
-    }
-}
-
-impl TransactionPublicKeyEncoding {
-    pub fn from_u8(n: u8) -> Option<TransactionPublicKeyEncoding> {
-        match n {
-            x if x == TransactionPublicKeyEncoding::Compressed as u8 => {
-                Some(TransactionPublicKeyEncoding::Compressed)
-            }
-            x if x == TransactionPublicKeyEncoding::Uncompressed as u8 => {
-                Some(TransactionPublicKeyEncoding::Uncompressed)
-            }
-            _ => None,
-        }
-    }
-}
-
-impl ClarityVersion {
-    pub fn from_u8(n: u8) -> Option<ClarityVersion> {
-        match n {
-            x if x == ClarityVersion::Clarity1 as u8 => Some(ClarityVersion::Clarity1),
-            x if x == ClarityVersion::Clarity2 as u8 => Some(ClarityVersion::Clarity2),
-            x if x == ClarityVersion::Clarity3 as u8 => Some(ClarityVersion::Clarity3),
-            x if x == ClarityVersion::Clarity4 as u8 => Some(ClarityVersion::Clarity4),
-            x if x == ClarityVersion::Clarity5 as u8 => Some(ClarityVersion::Clarity5),
-            x if x == ClarityVersion::Clarity6 as u8 => Some(ClarityVersion::Clarity6),
-            _ => None,
-        }
-    }
-}
-
-impl TransactionPayload {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let type_id = fd.read_u8()?;
-        let payload = match type_id {
-            x if x == TransactionPayloadID::TokenTransfer as u8 => {
-                let principal = PrincipalData::deserialize(fd)?;
-                let amount = fd.read_u64::<BigEndian>()?;
-                let mut memo_bytes = [0u8; 34];
-                fd.read_exact(&mut memo_bytes)?;
-                let memo = TokenTransferMemo(memo_bytes);
-                TransactionPayload::TokenTransfer(principal, amount, memo)
-            }
-            x if x == TransactionPayloadID::ContractCall as u8 => {
-                let payload = TransactionContractCall::deserialize(fd)?;
-                TransactionPayload::ContractCall(payload)
-            }
-            x if x == TransactionPayloadID::SmartContract as u8 => {
-                let payload = TransactionSmartContract::deserialize(fd)?;
-                TransactionPayload::SmartContract(payload)
-            }
-            x if x == TransactionPayloadID::PoisonMicroblock as u8 => {
-                let h1 = StacksMicroblockHeader::deserialize(fd)?;
-                let h2 = StacksMicroblockHeader::deserialize(fd)?;
-                TransactionPayload::PoisonMicroblock(h1, h2)
-            }
-            x if x == TransactionPayloadID::Coinbase as u8 => {
-                let mut payload_bytes = [0u8; 32];
-                fd.read_exact(&mut payload_bytes)?;
-                let payload = CoinbasePayload(payload_bytes);
-                TransactionPayload::Coinbase(payload)
-            }
-            x if x == TransactionPayloadID::CoinbaseToAltRecipient as u8 => {
-                let mut payload_bytes = [0u8; 32];
-                fd.read_exact(&mut payload_bytes)?;
-                let payload = CoinbasePayload(payload_bytes);
-                let principal = PrincipalData::deserialize(fd)?;
-                TransactionPayload::CoinbaseToAltRecipient(payload, principal)
-            }
-            x if x == TransactionPayloadID::VersionedSmartContract as u8 => {
-                let clarity_version_u8 = fd.read_u8()?;
-                let clarity_version =
-                    ClarityVersion::from_u8(clarity_version_u8).ok_or(format!(
-                        "Failed to parse smart contract Clarity version: unknown value {}",
-                        clarity_version_u8
-                    ))?;
-                let payload = TransactionSmartContract::deserialize(fd)?;
-                TransactionPayload::VersionedSmartContract(payload, clarity_version)
-            }
-            x if x == TransactionPayloadID::TenureChange as u8 => {
-                let payload = TransactionTenureChange::deserialize(fd)?;
-                TransactionPayload::TenureChange(payload)
-            }
-            x if x == TransactionPayloadID::NakamotoCoinbase as u8 => {
-                let mut payload_bytes = [0u8; 32];
-                fd.read_exact(&mut payload_bytes)?;
-                let payload = CoinbasePayload(payload_bytes);
-
-                let principal = PrincipalData::deserialize_optional(fd)?;
-
-                let mut vrf_proof: Vec<u8> = vec![0u8; 80];
-                fd.read_exact(&mut vrf_proof)?;
-
-                TransactionPayload::NakamotoCoinbase(payload, principal, VRFProof(vrf_proof))
-            }
-            _ => {
-                return Err(format!(
-                    "Failed to parse transaction -- unknown payload ID {}",
-                    type_id
-                ))?;
-            }
-        };
-
-        Ok(payload)
-    }
-}
-
-impl TransactionContractCall {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let address = StacksAddress::deserialize(fd)?;
-        let contract_name = ClarityName::deserialize(fd)?;
-        let function_name = ClarityName::deserialize(fd)?;
-        let function_args: Vec<ClarityValue> = {
-            let len = fd.read_u32::<BigEndian>()?;
-            let mut results: Vec<ClarityValue> = Vec::with_capacity(len as usize);
-            for _ in 0..len {
-                results.push(ClarityValue::deserialize(fd, true)?);
-            }
-            results
-        };
-
-        Ok(TransactionContractCall {
-            address,
-            contract_name,
-            function_name,
-            function_args,
-        })
-    }
-}
-
-impl TransactionSmartContract {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let name = ClarityName::deserialize(fd)?;
-        let code_body = StacksString::deserialize(fd)?;
-        Ok(TransactionSmartContract { name, code_body })
-    }
-}
-
-impl TransactionTenureChange {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let mut tenure_consensus_hash = [0u8; 20];
-        fd.read_exact(&mut tenure_consensus_hash)?;
-
-        let mut prev_tenure_consensus_hash = [0u8; 20];
-        fd.read_exact(&mut prev_tenure_consensus_hash)?;
-
-        let mut burn_view_consensus_hash = [0u8; 20];
-        fd.read_exact(&mut burn_view_consensus_hash)?;
-
-        let mut previous_tenure_end = [0u8; 32];
-        fd.read_exact(&mut previous_tenure_end)?;
-
-        let previous_tenure_blocks = fd.read_u32::<BigEndian>()?;
-
-        let cause_u8: u8 = fd.read_u8()?;
-        let cause = TenureChangeCause::from_u8(cause_u8).ok_or(format!(
-            "Failed to parse transaction: invalid tenure change cause {}",
-            cause_u8
-        ))?;
-
-        let mut pubkey_hash = [0u8; 20];
-        fd.read_exact(&mut pubkey_hash)?;
-
-        Ok(TransactionTenureChange {
-            tenure_consensus_hash,
-            prev_tenure_consensus_hash,
-            burn_view_consensus_hash,
-            previous_tenure_end,
-            previous_tenure_blocks,
-            cause,
-            pubkey_hash,
-        })
-    }
-}
-
-impl StacksMicroblockHeader {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let cursor_pos = fd.position() as usize;
-
-        let version = fd.read_u8()?;
-        let sequence = fd.read_u16::<BigEndian>()?;
-
-        let mut prev_block_bytes = [0u8; 32];
-        fd.read_exact(&mut prev_block_bytes)?;
-        let prev_block = BlockHeaderHash(prev_block_bytes);
-
-        let mut tx_merkle_root_bytes = [0u8; 32];
-        fd.read_exact(&mut tx_merkle_root_bytes)?;
-        let tx_merkle_root = Sha512Trunc256Sum(tx_merkle_root_bytes);
-
-        let mut signature_bytes = [0u8; 65];
-        fd.read_exact(&mut signature_bytes)?;
-        let signature = MessageSignature(signature_bytes);
-
-        let serialized_bytes = fd.get_ref()[cursor_pos..fd.position() as usize].to_vec();
-
-        Ok(StacksMicroblockHeader {
-            version,
-            sequence,
-            prev_block,
-            tx_merkle_root,
-            signature,
-            serialized_bytes,
-        })
-    }
-}
-
-impl StacksString {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let len = fd.read_u32::<BigEndian>()?;
-        let mut bytes: Vec<u8> = vec![0u8; len as usize];
-        fd.read_exact(&mut bytes)?;
-        Ok(StacksString(bytes))
-    }
-}
-
-impl PrincipalData {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let mut header = [0];
-        fd.read_exact(&mut header)?;
-
-        let prefix = TypePrefix::from_u8(header[0]).ok_or_else(|| "Bad principal prefix")?;
-
-        match prefix {
-            TypePrefix::PrincipalStandard => Ok(PrincipalData::Standard(
-                StandardPrincipalData::deserialize(fd)?,
-            )),
-            TypePrefix::PrincipalContract => {
-                let issuer = StandardPrincipalData::deserialize(fd)?;
-                let name = ClarityName::deserialize(fd)?;
-                Ok(PrincipalData::Contract(QualifiedContractIdentifier {
-                    issuer,
-                    name,
-                }))
-            }
-            _ => Err("Bad principal prefix".into()),
-        }
-    }
-
-    pub fn deserialize_optional(fd: &mut Cursor<&[u8]>) -> Result<Option<Self>, DeserializeError> {
-        let mut header = [0];
-        fd.read_exact(&mut header)?;
-        let prefix =
-            TypePrefix::from_u8(header[0]).ok_or_else(|| "Bad optional PrincipalData prefix")?;
-        match prefix {
-            TypePrefix::OptionalNone => Ok(None),
-            TypePrefix::OptionalSome => {
-                let principal_data = PrincipalData::deserialize(fd)?;
-                Ok(Some(principal_data))
-            }
-            _ => Err("Bad optional PrincipalData prefix".into()),
-        }
-    }
-}
-
-impl StandardPrincipalData {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let mut version = [0; 1];
-        let mut data = [0; 20];
-        fd.read_exact(&mut version)?;
-        fd.read_exact(&mut data)?;
-        Ok(StandardPrincipalData(version[0], data))
-    }
 }
 
 #[repr(u8)]
@@ -608,7 +84,7 @@ pub enum TransactionAuthFlags {
 
 pub enum TransactionAuth {
     Standard(TransactionSpendingCondition),
-    Sponsored(TransactionSpendingCondition, TransactionSpendingCondition), // the second account pays on behalf of the first account
+    Sponsored(TransactionSpendingCondition, TransactionSpendingCondition),
 }
 
 pub enum TransactionSpendingCondition {
@@ -619,8 +95,8 @@ pub enum TransactionSpendingCondition {
 pub struct MultisigSpendingCondition {
     pub hash_mode: MultisigHashMode,
     pub signer: [u8; 20],
-    pub nonce: u64,  // nth authorization from this account
-    pub tx_fee: u64, // microSTX/compute rate offered by this account
+    pub nonce: u64,
+    pub tx_fee: u64,
     pub fields: Vec<TransactionAuthField>,
     pub signatures_required: u16,
 }
@@ -628,8 +104,8 @@ pub struct MultisigSpendingCondition {
 pub struct SinglesigSpendingCondition {
     pub hash_mode: SinglesigHashMode,
     pub signer: [u8; 20],
-    pub nonce: u64,  // nth authorization from this account
-    pub tx_fee: u64, // microSTX/compute rate offerred by this account
+    pub nonce: u64,
+    pub tx_fee: u64,
     pub key_encoding: TransactionPublicKeyEncoding,
     pub signature: MessageSignature,
 }
@@ -650,6 +126,32 @@ pub enum SinglesigHashMode {
     P2WPKH = 0x02,
 }
 
+impl SinglesigHashMode {
+    pub fn from_u8(n: u8) -> Option<SinglesigHashMode> {
+        match n {
+            x if x == SinglesigHashMode::P2PKH as u8 => Some(SinglesigHashMode::P2PKH),
+            x if x == SinglesigHashMode::P2WPKH as u8 => Some(SinglesigHashMode::P2WPKH),
+            _ => None,
+        }
+    }
+}
+
+impl MultisigHashMode {
+    pub fn from_u8(n: u8) -> Option<MultisigHashMode> {
+        match n {
+            x if x == MultisigHashMode::P2SH as u8 => Some(MultisigHashMode::P2SH),
+            x if x == MultisigHashMode::P2SHNonSequential as u8 => {
+                Some(MultisigHashMode::P2SHNonSequential)
+            }
+            x if x == MultisigHashMode::P2WSH as u8 => Some(MultisigHashMode::P2WSH),
+            x if x == MultisigHashMode::P2WSHNonSequential as u8 => {
+                Some(MultisigHashMode::P2WSHNonSequential)
+            }
+            _ => None,
+        }
+    }
+}
+
 pub struct StacksPublicKeyBuffer(pub [u8; 33]);
 
 pub struct MessageSignature(pub [u8; 65]);
@@ -667,7 +169,6 @@ pub enum TransactionAuthField {
 #[repr(u8)]
 #[derive(PartialEq)]
 pub enum TransactionAuthFieldID {
-    // types of auth fields
     PublicKeyCompressed = 0x00,
     PublicKeyUncompressed = 0x01,
     SignatureCompressed = 0x02,
@@ -677,9 +178,22 @@ pub enum TransactionAuthFieldID {
 #[repr(u8)]
 #[derive(PartialEq, Copy, Clone)]
 pub enum TransactionPublicKeyEncoding {
-    // ways we can encode a public key
     Compressed = 0x00,
     Uncompressed = 0x01,
+}
+
+impl TransactionPublicKeyEncoding {
+    pub fn from_u8(n: u8) -> Option<TransactionPublicKeyEncoding> {
+        match n {
+            x if x == TransactionPublicKeyEncoding::Compressed as u8 => {
+                Some(TransactionPublicKeyEncoding::Compressed)
+            }
+            x if x == TransactionPublicKeyEncoding::Uncompressed as u8 => {
+                Some(TransactionPublicKeyEncoding::Uncompressed)
+            }
+            _ => None,
+        }
+    }
 }
 
 #[repr(u8)]
@@ -690,7 +204,26 @@ pub enum ClarityVersion {
     Clarity3 = 3,
     Clarity4 = 4,
     Clarity5 = 5,
+    /// Locally reserved for future upstream releases. The wire-format decoder
+    /// here can never produce this variant today because upstream's
+    /// `clarity::vm::ClarityVersion` only goes up to `Clarity5`; it will be
+    /// reachable automatically once upstream adds a `Clarity6` variant and we
+    /// bump the pinned `stacks-core` SHA.
     Clarity6 = 6,
+}
+
+impl ClarityVersion {
+    pub fn from_u8(n: u8) -> Option<ClarityVersion> {
+        match n {
+            x if x == ClarityVersion::Clarity1 as u8 => Some(ClarityVersion::Clarity1),
+            x if x == ClarityVersion::Clarity2 as u8 => Some(ClarityVersion::Clarity2),
+            x if x == ClarityVersion::Clarity3 as u8 => Some(ClarityVersion::Clarity3),
+            x if x == ClarityVersion::Clarity4 as u8 => Some(ClarityVersion::Clarity4),
+            x if x == ClarityVersion::Clarity5 as u8 => Some(ClarityVersion::Clarity5),
+            x if x == ClarityVersion::Clarity6 as u8 => Some(ClarityVersion::Clarity6),
+            _ => None,
+        }
+    }
 }
 
 #[repr(u8)]
@@ -812,6 +345,358 @@ pub struct TransactionContractCall {
     pub contract_name: ClarityName,
     pub function_name: ClarityName,
     pub function_args: Vec<ClarityValue>,
+}
+
+// ===== Façade entry point =====
+
+impl StacksTransaction {
+    /// Deserialize a Stacks transaction from the wire format.
+    ///
+    /// Delegates to upstream's canonical
+    /// [`StacksMessageCodec::consensus_deserialize`] for `StacksTransaction`
+    /// and lowers the result into the local types so the Neon encoder doesn't
+    /// need to change.
+    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
+        let upstream =
+            <UpstreamStacksTransaction as StacksMessageCodec>::consensus_deserialize(fd)
+                .map_err(|e| {
+                    DeserializeError::from(format!("Failed to decode transaction: {}", e))
+                })?;
+        Ok(convert_transaction(&upstream))
+    }
+}
+
+// ===== Conversion routines =====
+
+fn convert_transaction(upstream: &UpstreamStacksTransaction) -> StacksTransaction {
+    StacksTransaction {
+        version: convert_version(upstream.version),
+        chain_id: upstream.chain_id,
+        auth: convert_auth(&upstream.auth),
+        anchor_mode: convert_anchor_mode(upstream.anchor_mode),
+        post_conditions_serialized: serialize_post_conditions_section(
+            upstream.post_condition_mode,
+            &upstream.post_conditions,
+        ),
+        post_condition_mode: convert_post_condition_mode(upstream.post_condition_mode),
+        post_conditions: upstream
+            .post_conditions
+            .iter()
+            .map(convert_post_condition)
+            .collect(),
+        payload: convert_payload(&upstream.payload),
+    }
+}
+
+/// Re-serialize the post-conditions section as it appears on the wire:
+///
+/// `[1 byte mode] [4-byte BE length] [N * encoded post-condition]`
+///
+/// The local code historically captured this slice via cursor offsets while
+/// hand-parsing each post-condition. Clarity / post-condition encoding is
+/// canonical and deterministic, so re-serializing produces byte-identical
+/// output. This is what the Neon encoder emits as `post_conditions_buffer`.
+fn serialize_post_conditions_section(
+    mode: UpstreamPostConditionMode,
+    post_conditions: &[blockstack_lib::chainstate::stacks::TransactionPostCondition],
+) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(5 + post_conditions.len() * 32);
+    buf.push(mode as u8);
+    buf.extend_from_slice(&(post_conditions.len() as u32).to_be_bytes());
+    for pc in post_conditions {
+        pc.consensus_serialize(&mut buf)
+            .expect("BUG: re-serialize of post-condition to Vec failed");
+    }
+    buf
+}
+
+fn convert_version(upstream: UpstreamTransactionVersion) -> TransactionVersion {
+    match upstream {
+        UpstreamTransactionVersion::Mainnet => TransactionVersion::Mainnet,
+        UpstreamTransactionVersion::Testnet => TransactionVersion::Testnet,
+    }
+}
+
+fn convert_anchor_mode(upstream: UpstreamAnchorMode) -> TransactionAnchorMode {
+    match upstream {
+        UpstreamAnchorMode::OnChainOnly => TransactionAnchorMode::OnChainOnly,
+        UpstreamAnchorMode::OffChainOnly => TransactionAnchorMode::OffChainOnly,
+        UpstreamAnchorMode::Any => TransactionAnchorMode::Any,
+    }
+}
+
+fn convert_post_condition_mode(upstream: UpstreamPostConditionMode) -> TransactionPostConditionMode {
+    match upstream {
+        UpstreamPostConditionMode::Allow => TransactionPostConditionMode::Allow,
+        UpstreamPostConditionMode::Deny => TransactionPostConditionMode::Deny,
+        UpstreamPostConditionMode::Originator => TransactionPostConditionMode::Originator,
+    }
+}
+
+fn convert_auth(upstream: &UpstreamTransactionAuth) -> TransactionAuth {
+    match upstream {
+        UpstreamTransactionAuth::Standard(origin) => {
+            TransactionAuth::Standard(convert_spending_condition(origin))
+        }
+        UpstreamTransactionAuth::Sponsored(origin, sponsor) => TransactionAuth::Sponsored(
+            convert_spending_condition(origin),
+            convert_spending_condition(sponsor),
+        ),
+    }
+}
+
+fn convert_spending_condition(
+    upstream: &UpstreamTransactionSpendingCondition,
+) -> TransactionSpendingCondition {
+    match upstream {
+        UpstreamTransactionSpendingCondition::Singlesig(s) => {
+            TransactionSpendingCondition::Singlesig(convert_singlesig(s))
+        }
+        UpstreamTransactionSpendingCondition::Multisig(m) => {
+            TransactionSpendingCondition::Multisig(convert_multisig(m))
+        }
+        UpstreamTransactionSpendingCondition::OrderIndependentMultisig(m) => {
+            // Upstream split the SIP-040 / non-sequential multisig flavors out
+            // into their own variant; locally they live as the
+            // `*NonSequential` hash modes inside the regular Multisig variant.
+            TransactionSpendingCondition::Multisig(convert_order_independent_multisig(m))
+        }
+    }
+}
+
+fn convert_singlesig(upstream: &UpstreamSinglesigSpendingCondition) -> SinglesigSpendingCondition {
+    SinglesigSpendingCondition {
+        hash_mode: match upstream.hash_mode {
+            UpstreamSinglesigHashMode::P2PKH => SinglesigHashMode::P2PKH,
+            UpstreamSinglesigHashMode::P2WPKH => SinglesigHashMode::P2WPKH,
+        },
+        signer: upstream.signer.0,
+        nonce: upstream.nonce,
+        tx_fee: upstream.tx_fee,
+        key_encoding: convert_pubkey_encoding(upstream.key_encoding),
+        signature: MessageSignature(upstream.signature.0),
+    }
+}
+
+fn convert_multisig(upstream: &UpstreamMultisigSpendingCondition) -> MultisigSpendingCondition {
+    use blockstack_lib::chainstate::stacks::MultisigHashMode as UpHM;
+    MultisigSpendingCondition {
+        hash_mode: match upstream.hash_mode {
+            UpHM::P2SH => MultisigHashMode::P2SH,
+            UpHM::P2WSH => MultisigHashMode::P2WSH,
+        },
+        signer: upstream.signer.0,
+        nonce: upstream.nonce,
+        tx_fee: upstream.tx_fee,
+        fields: upstream.fields.iter().map(convert_auth_field).collect(),
+        signatures_required: upstream.signatures_required,
+    }
+}
+
+fn convert_order_independent_multisig(
+    upstream: &UpstreamOrderIndependentMultisigSpendingCondition,
+) -> MultisigSpendingCondition {
+    use blockstack_lib::chainstate::stacks::OrderIndependentMultisigHashMode as UpOIHM;
+    MultisigSpendingCondition {
+        hash_mode: match upstream.hash_mode {
+            UpOIHM::P2SH => MultisigHashMode::P2SHNonSequential,
+            UpOIHM::P2WSH => MultisigHashMode::P2WSHNonSequential,
+        },
+        signer: upstream.signer.0,
+        nonce: upstream.nonce,
+        tx_fee: upstream.tx_fee,
+        fields: upstream.fields.iter().map(convert_auth_field).collect(),
+        signatures_required: upstream.signatures_required,
+    }
+}
+
+fn convert_pubkey_encoding(upstream: UpstreamPublicKeyEncoding) -> TransactionPublicKeyEncoding {
+    match upstream {
+        UpstreamPublicKeyEncoding::Compressed => TransactionPublicKeyEncoding::Compressed,
+        UpstreamPublicKeyEncoding::Uncompressed => TransactionPublicKeyEncoding::Uncompressed,
+    }
+}
+
+fn convert_auth_field(upstream: &UpstreamTransactionAuthField) -> TransactionAuthField {
+    match upstream {
+        UpstreamTransactionAuthField::PublicKey(pubk) => {
+            // Wire format stores the 33-byte compressed serialization in both
+            // the Compressed and Uncompressed cases; the `compressed` flag
+            // tells the verifier how the original was framed.
+            let compressed_bytes = pubk.to_bytes_compressed();
+            let mut key = [0u8; 33];
+            key.copy_from_slice(&compressed_bytes);
+            TransactionAuthField::PublicKey(Secp256k1PublicKey {
+                key: StacksPublicKeyBuffer(key),
+                compressed: pubk.compressed(),
+            })
+        }
+        UpstreamTransactionAuthField::Signature(encoding, sig) => TransactionAuthField::Signature(
+            convert_pubkey_encoding(*encoding),
+            MessageSignature(sig.0),
+        ),
+    }
+}
+
+fn convert_payload(upstream: &UpstreamTransactionPayload) -> TransactionPayload {
+    match upstream {
+        UpstreamTransactionPayload::TokenTransfer(p, amount, memo) => {
+            TransactionPayload::TokenTransfer(
+                convert_principal(p),
+                *amount,
+                TokenTransferMemo(memo.0),
+            )
+        }
+        UpstreamTransactionPayload::ContractCall(cc) => {
+            TransactionPayload::ContractCall(convert_contract_call(cc))
+        }
+        UpstreamTransactionPayload::SmartContract(sc, version_opt) => match version_opt {
+            None => TransactionPayload::SmartContract(convert_smart_contract(sc)),
+            Some(v) => TransactionPayload::VersionedSmartContract(
+                convert_smart_contract(sc),
+                convert_clarity_version(*v),
+            ),
+        },
+        UpstreamTransactionPayload::PoisonMicroblock(h1, h2) => {
+            TransactionPayload::PoisonMicroblock(
+                convert_microblock_header(h1),
+                convert_microblock_header(h2),
+            )
+        }
+        UpstreamTransactionPayload::Coinbase(buf, recipient_opt, vrf_opt) => {
+            // Upstream collapses the three on-chain coinbase shapes into a single
+            // variant and discriminates by which optional fields are populated:
+            //
+            //   (None,    None)    -> id 4 Coinbase
+            //   (Some(_), None)    -> id 5 CoinbaseToAltRecipient
+            //   (_,       Some(_)) -> id 8 NakamotoCoinbase
+            //
+            // We fan it back out into the local enum so the JS-facing `type_id`
+            // values stay stable.
+            match (recipient_opt, vrf_opt) {
+                (None, None) => TransactionPayload::Coinbase(convert_coinbase_payload(buf)),
+                (Some(recip), None) => TransactionPayload::CoinbaseToAltRecipient(
+                    convert_coinbase_payload(buf),
+                    convert_principal(recip),
+                ),
+                (recip_opt, Some(vrf)) => TransactionPayload::NakamotoCoinbase(
+                    convert_coinbase_payload(buf),
+                    recip_opt.as_ref().map(convert_principal),
+                    convert_vrf_proof(vrf),
+                ),
+            }
+        }
+        UpstreamTransactionPayload::TenureChange(tc) => {
+            TransactionPayload::TenureChange(convert_tenure_change(tc))
+        }
+    }
+}
+
+fn convert_contract_call(upstream: &UpstreamTransactionContractCall) -> TransactionContractCall {
+    TransactionContractCall {
+        address: convert_address(&upstream.address),
+        // Upstream uses ContractName here (a guarded_string with stricter regex);
+        // the local Neon encoder only ever calls `as_str()` on this field, so we
+        // can safely round-trip via `to_string()` into the looser local
+        // ClarityName without losing information.
+        contract_name: ClarityName(upstream.contract_name.to_string()),
+        function_name: ClarityName(upstream.function_name.to_string()),
+        function_args: upstream
+            .function_args
+            .iter()
+            .map(|v| convert_clarity_value(v, true))
+            .collect(),
+    }
+}
+
+fn convert_smart_contract(upstream: &UpstreamTransactionSmartContract) -> TransactionSmartContract {
+    TransactionSmartContract {
+        name: ClarityName(upstream.name.to_string()),
+        code_body: StacksString(convert_stacks_string(&upstream.code_body)),
+    }
+}
+
+fn convert_stacks_string(upstream: &UpstreamStacksString) -> Vec<u8> {
+    // Upstream's StacksString::Deref<Target=Vec<u8>> exposes the bytes; clone
+    // them so the caller owns the buffer.
+    upstream.as_slice().to_vec()
+}
+
+fn convert_microblock_header(upstream: &UpstreamStacksMicroblockHeader) -> StacksMicroblockHeader {
+    let serialized_bytes = <UpstreamStacksMicroblockHeader as StacksMessageCodec>::serialize_to_vec(
+        upstream,
+    );
+    StacksMicroblockHeader {
+        version: upstream.version,
+        sequence: upstream.sequence,
+        prev_block: BlockHeaderHash(upstream.prev_block.0),
+        tx_merkle_root: Sha512Trunc256Sum(upstream.tx_merkle_root.0),
+        signature: MessageSignature(upstream.signature.0),
+        serialized_bytes,
+    }
+}
+
+fn convert_coinbase_payload(upstream: &UpstreamCoinbasePayload) -> CoinbasePayload {
+    CoinbasePayload(upstream.0)
+}
+
+fn convert_vrf_proof(upstream: &stacks_common::util::vrf::VRFProof) -> VRFProof {
+    VRFProof(upstream.to_bytes().to_vec())
+}
+
+fn convert_tenure_change(upstream: &UpstreamTenureChangePayload) -> TransactionTenureChange {
+    TransactionTenureChange {
+        tenure_consensus_hash: upstream.tenure_consensus_hash.0,
+        prev_tenure_consensus_hash: upstream.prev_tenure_consensus_hash.0,
+        burn_view_consensus_hash: upstream.burn_view_consensus_hash.0,
+        previous_tenure_end: upstream.previous_tenure_end.0,
+        previous_tenure_blocks: upstream.previous_tenure_blocks,
+        cause: convert_tenure_change_cause(upstream.cause),
+        pubkey_hash: upstream.pubkey_hash.0,
+    }
+}
+
+fn convert_tenure_change_cause(upstream: UpstreamTenureChangeCause) -> TenureChangeCause {
+    match upstream {
+        UpstreamTenureChangeCause::BlockFound => TenureChangeCause::BlockFound,
+        UpstreamTenureChangeCause::Extended => TenureChangeCause::Extended,
+        UpstreamTenureChangeCause::ExtendedRuntime => TenureChangeCause::ExtendedRuntime,
+        UpstreamTenureChangeCause::ExtendedReadCount => TenureChangeCause::ExtendedReadCount,
+        UpstreamTenureChangeCause::ExtendedReadLength => TenureChangeCause::ExtendedReadLength,
+        UpstreamTenureChangeCause::ExtendedWriteCount => TenureChangeCause::ExtendedWriteCount,
+        UpstreamTenureChangeCause::ExtendedWriteLength => TenureChangeCause::ExtendedWriteLength,
+    }
+}
+
+fn convert_clarity_version(upstream: UpstreamClarityVersion) -> ClarityVersion {
+    match upstream {
+        UpstreamClarityVersion::Clarity1 => ClarityVersion::Clarity1,
+        UpstreamClarityVersion::Clarity2 => ClarityVersion::Clarity2,
+        UpstreamClarityVersion::Clarity3 => ClarityVersion::Clarity3,
+        UpstreamClarityVersion::Clarity4 => ClarityVersion::Clarity4,
+        UpstreamClarityVersion::Clarity5 => ClarityVersion::Clarity5,
+    }
+}
+
+fn convert_address(upstream: &UpstreamStacksAddress) -> StacksAddress {
+    StacksAddress {
+        version: upstream.version(),
+        hash160_bytes: upstream.bytes().0,
+    }
+}
+
+fn convert_principal(upstream: &UpstreamPrincipalData) -> PrincipalData {
+    match upstream {
+        UpstreamPrincipalData::Standard(s) => {
+            PrincipalData::Standard(StandardPrincipalData(s.version(), s.1))
+        }
+        UpstreamPrincipalData::Contract(qci) => {
+            PrincipalData::Contract(QualifiedContractIdentifier {
+                issuer: StandardPrincipalData(qci.issuer.version(), qci.issuer.1),
+                name: ClarityName(qci.name.to_string()),
+            })
+        }
+    }
 }
 
 #[cfg(test)]

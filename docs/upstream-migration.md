@@ -136,9 +136,12 @@ helpers) was replaced with a single delegation to upstream's canonical
     `crate::clarity_value::deserialize::convert_clarity_value(_, true)`,
     which already knows how to capture per-node `serialized_bytes` for the
     Neon encoder.
-  - The `StacksAddress::deserialize` impl stays put — it's still called by
-    `stacks_tx::deserialize`. It will move (or vanish entirely) when that
-    module is migrated next.
+  - `convert_post_condition` is exposed `pub(crate)` so the `stacks_tx`
+    façade reuses it for the post-conditions vector inside a transaction.
+  - The transient `StacksAddress::deserialize` helper that lived here for
+    `stacks_tx`'s benefit was deleted in the same pass that migrated
+    `stacks_tx`; the local `StacksAddress` struct is now constructed solely
+    from `convert_address(upstream)` calls.
 - `src/post_condition/neon_encoder.rs` — unchanged.
 - `src/post_condition/mod.rs` — unchanged. The public Neon entry point
   `decode_tx_post_conditions` keeps its current shape.
@@ -155,49 +158,93 @@ To preserve this code path's reuse, the helper
 `crate::clarity_value::deserialize::convert_clarity_value` was promoted from
 private to `pub(crate)`.
 
+## Reference module: `src/stacks_tx/`
+
+Done. The biggest module so far (~1700 LOC across `deserialize.rs` +
+`neon_encoder.rs`) was migrated to a thin façade over upstream's
+`<StacksTransaction as StacksMessageCodec>::consensus_deserialize`:
+
+- `src/stacks_tx/deserialize.rs`:
+  - `StacksTransaction::deserialize` is now ~6 lines: it calls upstream's
+    `consensus_deserialize` and runs `convert_transaction` to lower the
+    upstream value tree into the local types so the Neon encoder doesn't
+    need to change.
+  - Local types (`StacksTransaction`, `TransactionAuth`,
+    `TransactionSpendingCondition`, the *two* multisig hash-mode flavours
+    rolled into one local enum, `TransactionPayload`, `PrincipalData`,
+    `StandardPrincipalData`, `QualifiedContractIdentifier`,
+    `TransactionContractCall`, `TransactionSmartContract`,
+    `TransactionTenureChange`, `StacksMicroblockHeader`, `VRFProof`,
+    `CoinbasePayload`, `TokenTransferMemo`, `MessageSignature`,
+    `Secp256k1PublicKey`, `StacksPublicKeyBuffer`, `StacksString`,
+    `BlockHeaderHash`, `Sha512Trunc256Sum`, `ClarityVersion`,
+    `TenureChangeCause`, etc.) are all kept verbatim. Their `from_u8` /
+    discriminant helpers are kept too because `neon_encoder.rs` and the
+    `stacks_block` module still rely on them.
+  - All hand-rolled `XxxYy::deserialize` impls were removed and replaced by
+    a tree of straight-line `convert_*` functions, one per local type.
+  - `convert_post_condition` from `post_condition::deserialize` is reused
+    directly for the `post_conditions: Vec<TransactionPostCondition>` field.
+- `src/stacks_tx/neon_encoder.rs` — unchanged.
+- `src/stacks_tx/mod.rs` — unchanged. The public Neon entry point
+  `decode_transaction` keeps its current TypeScript-facing shape exactly.
+
+**Hazards encountered and how they were handled**:
+
+1. **`post_conditions_serialized: Vec<u8>`** — the JS-facing
+   `post_conditions_buffer` field. Upstream doesn't materialize this. The
+   façade re-serializes the `(mode, len, [post_conditions])` triple via the
+   canonical `StacksMessageCodec::consensus_serialize` to produce a
+   byte-identical buffer, since wire encoding is deterministic.
+2. **`OrderIndependentMultisig` vs `Multisig`** — upstream splits SIP-040
+   non-sequential multisig into its own variant
+   (`OrderIndependentMultisigSpendingCondition`, hash modes `0x05` / `0x07`),
+   while the local enum lumps them as `MultisigHashMode::P2SHNonSequential`
+   / `P2WSHNonSequential` inside the regular `Multisig` variant. The
+   converter folds upstream's `OrderIndependentMultisig` arm back into the
+   local `Multisig` variant, mapping the hash-mode bytes the obvious way.
+3. **`TransactionPayload::SmartContract(_, Option<ClarityVersion>)`** —
+   upstream collapses `TxPayloadSmartContract` (id 1) and
+   `TxPayloadVersionedSmartContract` (id 6) into a single variant tagged by
+   the optional Clarity version. The converter fans them back out so the JS
+   `type_id` discriminator stays 1 vs 6.
+4. **`TransactionPayload::Coinbase(_, Option<PrincipalData>, Option<VRFProof>)`**
+   — upstream collapses `Coinbase` (id 4), `CoinbaseToAltRecipient` (id 5),
+   and `NakamotoCoinbase` (id 8) into one variant discriminated by which of
+   the two optional fields are populated. The converter unfolds them based
+   on `(recipient_opt, vrf_opt)` so all three JS shapes survive.
+5. **`ClarityVersion::Clarity6`** — local enum has variants `Clarity1..6`,
+   upstream only `Clarity1..5`. The local `Clarity6` variant is now reserved
+   for a future upstream release; the wire-format decoder cannot produce it
+   today, and will start producing it automatically once upstream adds the
+   variant and we bump the pin.
+6. **`Secp256k1PublicKey` framing** — upstream stores parsed keys as
+   `LibSecp256k1PublicKey` and exposes `to_bytes_compressed()` (always 33
+   bytes, even when the wire-format flag says "uncompressed"). The local
+   `Secp256k1PublicKey { key: StacksPublicKeyBuffer([u8; 33]), compressed:
+   bool }` matches this exactly, so the converter just calls
+   `to_bytes_compressed()` and copies the `compressed()` flag through.
+7. **`TenureChangeCause` lacks `PartialEq` upstream** — upstream
+   intentionally hides it; the converter uses an exhaustive `match` on the
+   variants instead.
+8. **`StacksMicroblockHeader::serialized_bytes`** — upstream doesn't carry
+   the raw on-wire byte slice; the converter recovers it via
+   `<UpstreamStacksMicroblockHeader as StacksMessageCodec>::serialize_to_vec`,
+   again leveraging deterministic wire encoding.
+9. **`ContractName` → `ClarityName`** — upstream's
+   `TransactionContractCall.contract_name` and
+   `TransactionSmartContract.name` are `ContractName` (a stricter
+   guarded-string than `ClarityName`). The Neon encoder only ever calls
+   `as_str()` on them, so the converter round-trips via `to_string()` into
+   the looser local `ClarityName` without losing information.
+
+All five Rust unit tests in `stacks_tx::deserialize::tests` pass (including
+`test_decode_bug` and the four post-condition shape tests), as do all 41
+Jest suites end-to-end — most importantly `tx-decode`, `tx-decode-2.1`,
+`tx-decode-3.0`, and `nakamoto-block`, which exercise full transaction
+decode for every payload variant in the wire format.
+
 ## Remaining modules
-
-### `src/stacks_tx/` — ~1700 LOC, the biggest
-
-**Upstream targets**:
-
-- `blockstack_lib::chainstate::stacks::StacksTransaction`,
-  `TransactionPayload`, `TransactionAuth`, `TransactionSpendingCondition`,
-  `MultisigSpendingCondition`, `SinglesigSpendingCondition`,
-  `OrderIndependentMultisigSpendingCondition`,
-  `TransactionContractCall`, `TransactionSmartContract`,
-  `TenureChangePayload`, `TokenTransferMemo`, `CoinbasePayload`,
-  `StacksMicroblockHeader`, `TransactionAuthField`, `TransactionAuthFieldID`,
-  `TransactionPublicKeyEncoding`.
-
-**Hazards**:
-
-- Local code tracks `post_conditions_serialized: Vec<u8>` (raw bytes of the
-  post-conditions section, needed for the JS `post_conditions_buffer` field
-  in the TypeScript output). Upstream doesn't expose this. Easiest fix:
-  capture the cursor `position()` before and after calling
-  `Vec::<TransactionPostCondition>::consensus_deserialize`, then slice the
-  original input.
-- Local `AddressHashMode` is a single enum with six variants (P2PKH,
-  P2SH, P2SHNonSequential, P2WPKH, P2WSH, P2WSHNonSequential). Upstream
-  splits these across three enums (`SinglesigHashMode`, `MultisigHashMode`,
-  `OrderIndependentMultisigHashMode`). The JS-facing TypeScript already uses
-  the split form (`TxSpendingConditionSingleSigHashMode` /
-  `TxSpendingConditionMultiSigHashMode`), so this actually simplifies the
-  `neon_encoder`.
-- `TransactionPayload::SmartContract(s, version_opt)` collapses what the
-  TypeScript exposes as two distinct shapes (`TxPayloadSmartContract` and
-  `TxPayloadVersionedSmartContract`); branch on `version_opt.is_some()` in the
-  encoder.
-- `TransactionPayload::Coinbase(payload, recipient_opt, vrf_opt)` collapses
-  `TxPayloadCoinbase`, `TxPayloadCoinbaseToAltRecipient`, and
-  `TxPayloadNakamotoCoinbase`; branch on `(recipient_opt, vrf_opt)`.
-
-**Suggested approach**: This is best done as a single self-contained PR.
-Replace `src/stacks_tx/deserialize.rs` with a tiny adapter that calls
-`StacksTransaction::consensus_deserialize` and then constructs the local
-struct fields (mostly `From` impls). Keep `src/stacks_tx/neon_encoder.rs`
-unchanged.
 
 ### `src/stacks_block/` — ~640 LOC
 
@@ -235,9 +282,10 @@ upstream, wrap, leave encoder untouched.
    `struct` / `enum` declarations).
 6. Run `cargo test --lib` and `npm run build:dev && npm test` to validate.
 
-When all five modules are done, a second pass can delete the local
+When all modules are done, a second pass can delete the local
 `struct`/`enum` types entirely and rewrite the `neon_encoder.rs` files
-against upstream types directly.
+against upstream types directly. The only remaining migration is
+`stacks_block`.
 
 ## CI considerations
 

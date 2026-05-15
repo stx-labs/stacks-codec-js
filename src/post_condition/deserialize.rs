@@ -1,18 +1,13 @@
 //! Transaction post-condition deserialization.
 //!
-//! The wire-format parser is now delegated to upstream's canonical
+//! The wire-format parser is delegated to upstream's canonical
 //! `<TransactionPostCondition as StacksMessageCodec>::consensus_deserialize`
 //! implementation in `stackslib`. This module keeps the local enum / struct
 //! definitions because the Neon encoder operates on them directly, and converts
 //! the upstream value tree to the local one at the boundary.
-//!
-//! The `StacksAddress::deserialize` impl is retained here because the
-//! not-yet-migrated `stacks_tx` module still calls it. It will move once that
-//! module is migrated.
 
-use byteorder::ReadBytesExt;
 use std::convert::TryFrom;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 
 use blockstack_lib::chainstate::stacks::{
     AssetInfo as UpstreamAssetInfo, FungibleConditionCode as UpstreamFungibleConditionCode,
@@ -156,19 +151,14 @@ impl TransactionPostCondition {
     }
 }
 
-impl StacksAddress {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let version: u8 = fd.read_u8()?;
-        let mut hash160 = [0u8; 20];
-        fd.read_exact(&mut hash160)?;
-        Ok(StacksAddress {
-            version: version,
-            hash160_bytes: hash160,
-        })
-    }
-}
-
-fn convert_post_condition(upstream: &UpstreamTransactionPostCondition) -> TransactionPostCondition {
+/// Convert an upstream `TransactionPostCondition` into the local enum tree.
+///
+/// Exposed `pub(crate)` so the upstream-driven `stacks_tx` migration can reuse
+/// the same converter for the post-conditions vector inside a transaction
+/// without having to round-trip through bytes.
+pub(crate) fn convert_post_condition(
+    upstream: &UpstreamTransactionPostCondition,
+) -> TransactionPostCondition {
     match upstream {
         UpstreamTransactionPostCondition::STX(principal, code, amount) => {
             TransactionPostCondition::STX(
