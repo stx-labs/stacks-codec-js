@@ -1,12 +1,11 @@
 //! Top-level entry points for Clarity value decoding exposed to JS.
 //!
-//! All parsing now goes directly through upstream
-//! `clarity::vm::types::Value`. The `decode_clarity_value`,
-//! `decode_clarity_value_to_repr`, `decode_clarity_value_type_name`, and
-//! `decode_clarity_value_array` functions produce the same JS-facing shapes
-//! they always did; the local `Value` / `ClarityValue` enums in
-//! `clarity_value::types` are kept only for `pox_events`, which has its own
-//! migration scheduled separately.
+//! All parsing goes directly through upstream `clarity::vm::types::Value`.
+//! `decode_clarity_value`, `decode_clarity_value_to_repr`,
+//! `decode_clarity_value_type_name`, and `decode_clarity_value_array` produce
+//! the same JS-facing shapes they always did; the JS-facing formatters live
+//! in `neon_encoder` (see its module doc for why `repr_string` and
+//! `type_signature_string` are reimplemented locally).
 use std::io::Cursor;
 
 use clarity::vm::types::Value as UpstreamValue;
@@ -19,9 +18,7 @@ use self::neon_encoder::{
     type_signature_string as upstream_type_signature_string,
 };
 
-pub mod deserialize;
 pub mod neon_encoder;
-pub mod types;
 
 /// Read a single Clarity value from `cursor` using upstream's canonical
 /// codec. Returns the value plus a borrowed slice of the bytes consumed by

@@ -25,51 +25,43 @@ along the way.
 - **Phase 1 (complete):** Every consensus-decoding path delegates to upstream
   `StacksMessageCodec` / Clarity parsers first; local types and `convert_*`
   functions bridged the gap to the existing Neon encoders.
-- **Phase 2 (in progress):** Shadow types are being removed module-by-module.
-  The pattern is **Option A — zero-cost newtype wrappers**:
+- **Phase 2 (complete):** Shadow types and `convert_*` bridges have been
+  removed module-by-module. The Neon encoders now operate directly on upstream
+  types via **Option A — zero-cost newtype wrappers**:
   `neon_util::Encode<'a, T>` (`#[repr(transparent)]`, holds `&'a T`) so we can
   implement `NeonJsSerialize` for upstream types without violating the orphan
   rule. JS-facing object shapes and TypeScript entry points are unchanged.
+  The only deliberate exception is the Stacks 2.x block header (see the
+  `stacks_block` row below).
 
 **Phase 2 completed in this repo (snapshot for handoff)**
 
 | Area | What changed |
 |------|----------------|
 | `src/neon_util.rs` | `Encode<'a, T>` plus `Encode::new`; encoders use `Encode(&value).neon_js_serialize(...)`. |
-| `src/clarity_value/` | Neon entry points parse `clarity::vm::types::Value` directly (`deserialize_read` / codec). `neon_encoder.rs` walks the upstream tree; `repr_string` / `type_signature_string` match historical JS output. Local `types.rs` / `deserialize.rs` remain **only** for legacy helpers still referenced from `address` (see below). |
+| `src/clarity_value/` | Neon entry points parse `clarity::vm::types::Value` directly (`deserialize_read` / codec). `neon_encoder.rs` walks the upstream tree; `repr_string` / `type_signature_string` match historical JS output. The legacy `types.rs` / `deserialize.rs` have been deleted — no local shadow tree remains. |
 | `src/post_condition/` | `deserialize.rs` re-exports upstream post-condition types; `deserialize_post_condition` wraps `consensus_deserialize`. `neon_encoder.rs` implements `NeonJsSerialize` for `Encode<'_, …>`. |
 | `src/stacks_tx/` | `deserialize.rs` is a thin re-export + `deserialize_transaction`. `neon_encoder.rs` rewritten for upstream payloads, auth, multisigs, coinbase fan-out, microblocks, post-condition buffer re-serialization. `mod.rs` hashes txid and calls `Encode(&tx)`. **Note:** `clarity_version` on versioned smart-contract payloads uses an explicit map from `clarity::vm::ClarityVersion` to the **1-based wire byte** (`Clarity2` → `2`), not `as u8` on the enum. |
-| `src/address/neon_encoder.rs` | Shared `NeonJsSerialize` for upstream `StacksAddress` / principal types (reduces duplication with tx/post-condition encoders). |
+| `src/address/` | `neon_encoder.rs` shares `NeonJsSerialize` for upstream `StacksAddress` / principal types. `decode_clarity_value_to_principal_inner` parses principal-prefixed inputs through upstream `clarity::vm::types::PrincipalData::consensus_deserialize`; the legacy buffer-prefixed (`0x02 || version || hash160`) shorthand is still handled manually, since it isn't a real Clarity buffer encoding. |
 | `src/stacks_block/` | Nakamoto path: `deserialize_nakamoto_block` builds upstream `NakamotoBlock` (header via codec, tx vector read loosely — same rationale as Phase 1: no duplicate-txid / zero-tx / merkle checks from upstream block parsers). Stacks 2.x: **local shadow** `StacksBlockHeader` still used so **any 80-byte VRF blob** is accepted (upstream validates curve points). `neon_encoder.rs`: `Encode` wrappers; `BitVec<4000>` exposes wire-identical `data` hex and an MSB-first `bits` array (historical JS behavior; differs from upstream `BitVec::get` LSB order). |
 | `src/pox_events/` | **Migrated:** `decode_pox_synthetic_event` walks `clarity::vm::types::Value`; `decode_pox_event` deserializes with `<Value as StacksMessageCodec>::consensus_deserialize`. PoX logic is still bespoke; only the Clarity representation is upstream. |
 
-**Tests:** `cargo test --lib` and `npm test` (Jest) were green at last check (41 + 41 tests respectively). `stacks_tx` post-condition unit tests expect `TransactionPostConditionMode::Originator` where the wire byte is `0x03`, matching `stackslib`.
+**Tests:** `cargo test --lib` and `npm test` (Jest) are green (41 + 41 tests respectively). `stacks_tx` post-condition unit tests expect `TransactionPostConditionMode::Originator` where the wire byte is `0x03`, matching `stackslib`.
 
-**Remaining Phase 2 / cleanup (for you)**
+**Residual intentional locals (not bugs)**
 
-1. **`src/address/mod.rs` — `decode_clarity_value_to_principal_inner`**  
-   Still uses local `clarity_value::deserialize::TypePrefix` and
-   `clarity_value::types::{ClarityName, StandardPrincipalData}` for the
-   buffer / standard / contract principal paths. Replace with upstream
-   `PrincipalData` or full `Value` deserialization once the principal-only
-   behavior is confirmed equivalent for all supported inputs.
+1. **`stacks_block` Stacks 2.x header** — read field-by-field rather than via
+   upstream `StacksBlockHeader::consensus_deserialize` so any 80-byte VRF blob
+   is accepted (upstream validates curve points; this crate historically did
+   not). Block-body tx vectors are also read loosely (no duplicate-txid /
+   zero-tx / merkle checks).
+2. **`address::decode_clarity_value_to_principal_inner` buffer arm** — accepts
+   the legacy `0x02 || version || hash160` shorthand that some callers use.
+   This is **not** a real Clarity buffer (which carries a u32 length prefix)
+   and therefore cannot go through `Value::deserialize_read`.
 
-2. **`src/clarity_value/deserialize.rs` + `types.rs`**  
-   Delete `TypePrefix`, `convert_clarity_value`, and local `Value` /
-   `ClarityValue` trees once `address` no longer imports them. Update the
-   module doc in `clarity_value/mod.rs` (it still mentions `pox_events` as
-   the reason for keeping `types`; that is stale after the PoX migration).
-
-3. **Docs pass**  
-   Refresh the “Reference module” sections below so they describe **Phase 2**
-   reality, or mark them explicitly as **Phase 1 history** — they still read
-   as “façade + convert_*”, which is no longer true for `post_condition`,
-   `stacks_tx`, `stacks_block` (Nakamoto), or `pox_events`.
-
-4. **Optional**  
-   Run through `grep` for `convert_`, shadow structs, and any remaining
-   hand-rolled consensus parsing outside the documented exceptions (Stacks
-   2.x header VRF, loose block body reads).
+A `grep` for `convert_`, hand-rolled `XxxYy::deserialize` impls, or shadow
+structs outside these two exceptions should now come up clean.
 
 ## The pattern
 
@@ -123,44 +115,44 @@ After:
 - `src/address/bitcoin_address.rs` — 75 LOC of `From` impls between the local
   `BitcoinAddress` struct/enums and `blockstack_lib::burnchains::bitcoin::address::LegacyBitcoinAddress`.
 - `src/address/stacks_address.rs` — unchanged.
-- `src/address/mod.rs` — unchanged (and the `decode_stacks_address`,
-  `stacks_to_bitcoin_address`, etc. neon functions kept their behavior).
+- `src/address/neon_encoder.rs` — shared `NeonJsSerialize` for upstream
+  `StacksAddress` / `PrincipalData`, reused by `stacks_tx` and
+  `post_condition`.
+- `src/address/mod.rs` — `decode_stacks_address`, `stacks_to_bitcoin_address`,
+  `bitcoin_to_stacks_address`, etc. kept their behavior.
+  `decode_clarity_value_to_principal_inner` now parses principal-prefixed
+  inputs through upstream `clarity::vm::types::PrincipalData::consensus_deserialize`
+  and only keeps the legacy buffer-prefixed shorthand (`0x02 || version ||
+  hash160`) as a hand-rolled arm — see the **Residual intentional locals**
+  note at the top.
 
 Net: ~1000 LOC of hand-copied algorithm code replaced by ~100 LOC of
-delegation. Phase 1 kept the full Rust `lib` test suite green; counts have
-since moved with new tests (see snapshot table at the top).
+delegation.
 
 ## Reference module: `src/clarity_value/`
 
-Done. The recursive `ClarityValue::deserialize` was replaced with a façade:
+Done (Phase 2). The module now consists of just two files:
 
-- `src/clarity_value/deserialize.rs`:
-  - `ClarityValue::deserialize` now calls
-    `clarity::vm::types::Value::deserialize_read(r, None, false)` and walks
-    the resulting upstream tree into the local `Value` / `ClarityValue` types
-    via `convert_value` / `convert_clarity_value`.
-  - `TypePrefix` is kept locally because `address`, `post_condition` and
-    `stacks_tx` still import it via this path (their own migrations will
-    drop these imports). The values match upstream's
-    `clarity_types::types::serialization::TypePrefix` exactly.
-  - The smaller helpers (`ClarityName::deserialize`,
-    `ContractName::deserialize`, `StandardPrincipalData::deserialize`) are
-    kept for the same reason; they will be removed when their last call
-    sites in `stacks_tx`, `post_condition`, and `address` are migrated.
-- `src/clarity_value/types.rs` — unchanged. The local `ClarityValue` /
-  `Value` / `StandardPrincipalData` / `QualifiedContractIdentifier` types
-  remain as façades over their upstream equivalents, with the `repr_string`
-  and `type_signature` formatters preserved bit-for-bit so the JS-facing
-  output is byte-identical.
-- `src/clarity_value/neon_encoder.rs` — unchanged; still operates on the
-  local `Value` enum.
-- `src/clarity_value/mod.rs` — unchanged. The four neon entry points
+- `src/clarity_value/mod.rs` — the four Neon entry points
   (`decode_clarity_value`, `decode_clarity_value_type_name`,
-  `decode_clarity_value_to_repr`, `decode_clarity_value_array`) now exercise
-  upstream's parser without any API changes.
+  `decode_clarity_value_to_repr`, `decode_clarity_value_array`) call
+  `clarity::vm::types::Value::deserialize_read(r, None, false)` directly and
+  hand the upstream value to the encoder.
+- `src/clarity_value/neon_encoder.rs` — `decode_clarity_val` walks
+  `clarity::vm::types::Value` directly. `repr_string` and
+  `type_signature_string` are kept here as free functions because their
+  output is part of the JS contract and intentionally differs from upstream
+  `fmt::Display` (`repr` uses the historical Stacks API format; the type
+  signature format uses `(string-utf8 N)` where `N` is `chars * 4`).
+
+The legacy `clarity_value/deserialize.rs` and `clarity_value/types.rs`
+(local `TypePrefix`, `Value`, `ClarityValue`, `StandardPrincipalData`,
+`QualifiedContractIdentifier`, `ClarityName`, `ContractName`, plus the
+`convert_value` / `convert_clarity_value` bridge) have been deleted. Nothing
+in the crate imports them anymore.
 
 **Bytes-capture nuance**: The original deserializer captured each nested
-value's raw byte slice from the input cursor. We preserve this by
+value's raw byte slice from the input cursor. The encoder preserves this by
 re-serializing each nested upstream value via
 `<Value as StacksMessageCodec>::serialize_to_vec` (the trait method, which
 returns `Vec<u8>` — the inherent `Value::serialize_to_vec` shadows it with a
@@ -327,17 +319,18 @@ At last doc update, `cargo test --lib` and `npm test` were green, including
 `nakamoto-block` against known mainnet hashes.
 ## Future cleanup pass
 
-Phase 2 is partially complete: `post_condition`, `stacks_tx`, `stacks_block`
-(Nakamoto path), `pox_events`, and most of `clarity_value` Neon paths already
-emit from upstream types via `Encode<'_, T>`. Remaining work matches the
-**Remaining Phase 2 / cleanup** checklist at the top — principally
-`address::decode_clarity_value_to_principal_inner`, deleting
-`clarity_value::deserialize` / `types` leftovers once nothing imports them,
-and reconciling this document’s long-form Phase 1 sections with reality.
+Phase 2 is complete. `post_condition`, `stacks_tx`, `stacks_block` (Nakamoto
+path), `pox_events`, `clarity_value`, and `address` all emit from upstream
+types via `Encode<'_, T>`. The only remaining hand-rolled consensus parsing
+matches the **Residual intentional locals** list at the top:
 
-After that, a final pass of `grep` for `convert_` and unused shadow structs
-should come up clean except for the **intentional** local types (Stacks 2.x
-block header for permissive VRF, loose block body readers).
+- `stacks_block`: Stacks 2.x header (permissive 80-byte VRF) and the loose
+  block-body tx vector.
+- `address`: the legacy `0x02 || version || hash160` shorthand inside
+  `decode_clarity_value_to_principal_inner` (not a real Clarity buffer).
+
+A `grep` for `convert_`, hand-rolled `XxxYy::deserialize` impls, or shadow
+structs outside those two exceptions comes up clean today.
 
 ## CI considerations
 
