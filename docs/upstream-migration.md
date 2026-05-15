@@ -15,9 +15,16 @@ This crate now depends directly on `stackslib`, `clarity`, `stacks-common`, and
 revision (see `Cargo.toml`). The pin can be bumped at any time using
 [`scripts/update-stacks-core.sh`](../scripts/update-stacks-core.sh).
 
-The migration is incremental: each module under `src/` is being moved from
+The migration is incremental: each module under `src/` was moved from
 "hand-copy of upstream code" to "thin façade that delegates to upstream".
-This file documents the pattern and tracks progress.
+This file documents the pattern, hazards, and design decisions that came up
+along the way.
+
+**Status**: Phase one complete. Every consensus-decoding module that was in
+scope (`address`, `clarity_value`, `post_condition`, `stacks_tx`,
+`stacks_block`) is now a thin façade. The only intentionally-unmigrated
+module is `pox_events`, which is bespoke to this crate and has no upstream
+counterpart.
 
 ## The pattern
 
@@ -244,48 +251,81 @@ Jest suites end-to-end — most importantly `tx-decode`, `tx-decode-2.1`,
 `tx-decode-3.0`, and `nakamoto-block`, which exercise full transaction
 decode for every payload variant in the wire format.
 
-## Remaining modules
+## Reference module: `src/stacks_block/`
 
-### `src/stacks_block/` — ~640 LOC
+Done. Final module in the migration. Both Stacks 2.x (`StacksBlock`) and
+Nakamoto (`NakamotoBlock`) decoders now build on upstream's primitives:
 
-**Upstream targets**:
+- `src/stacks_block/deserialize.rs`:
+  - `NakamotoBlockHeader::deserialize` calls upstream's
+    `<NakamotoBlockHeader as StacksMessageCodec>::consensus_deserialize` and
+    runs `convert_nakamoto_header` to lower the result. All fields in the
+    Nakamoto header are fixed-width integers, opaque byte buffers, a
+    length-prefixed signature vector, or a `BitVec<4000>` — none of which
+    upstream rejects on content.
+  - `StacksBlockHeader::deserialize` does *not* delegate to upstream because
+    upstream's parser validates the VRF proof bytes form a valid curve
+    point, and the JS test suite (and presumably user fixtures) rely on the
+    historical permissive behavior of accepting any 80-byte buffer there.
+    The header is read field-by-field instead — every field is a fixed-size
+    byte buffer or fixed-width integer, so there's no canonical-decoder
+    dependency to lose.
+  - `NakamotoBlock::deserialize` and `StacksBlock::deserialize` deserialize
+    the header (above), then read the length-prefixed transaction vector
+    directly: a 4-byte BE count followed by `count` calls into upstream's
+    `StacksTransaction::consensus_deserialize` + the now-shared
+    `crate::stacks_tx::deserialize::convert_transaction` lowering. We
+    bypass upstream's `StacksBlock::consensus_deserialize` /
+    `NakamotoBlock::consensus_deserialize` because they reject blocks that
+    don't satisfy higher-level invariants (no zero-tx blocks,
+    tx-merkle-root must match the header, no duplicate txids); changing
+    those would be a user-visible behavior change.
+  - The local `BitVec` struct is kept verbatim — including its MSB-first
+    `get()` ordering, which is *different* from upstream's LSB-first
+    `BitVec::get()`. The JS-facing `bits` array has been shipping the
+    MSB-first convention since the first release, so we preserve it.
+    `convert_bitvec` lowers upstream's `BitVec<MAX_SIZE>` by serializing it
+    via `StacksMessageCodec::serialize_to_vec` and stripping the 6-byte
+    `(u16 len, u32 data_len)` header — the rest is the byte buffer we want,
+    byte-identical to what was on the wire.
+  - Local `block_hash()` and `block_id()` methods are kept verbatim.
+    They produce identical output to upstream's `block_hash()` /
+    `block_id()` for every non-genesis block (the only difference is that
+    upstream's `StacksBlockHeader::block_hash` short-circuits to
+    `FIRST_STACKS_BLOCK_HASH` when `total_work.work == 0`; preserving the
+    local unconditional hashing form keeps shipped behavior intact).
+- `src/stacks_block/neon_encoder.rs` — unchanged.
+- `src/stacks_block/mod.rs` — unchanged. The two public Neon entry points
+  `decode_nakamoto_block` and `decode_stacks_block` keep their TypeScript
+  shapes exactly.
 
-- `blockstack_lib::chainstate::stacks::{StacksBlock, StacksBlockHeader}`.
-- `blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader}`.
+To enable reuse, `crate::stacks_tx::deserialize::convert_transaction` was
+promoted from private to `pub(crate)`.
 
-**Hazards**:
+All 42 Rust unit tests and all 41 Jest suites pass — including the
+end-to-end `nakamoto-block` test that decodes a real on-chain Nakamoto
+block and asserts its `block_hash` / `index_block_hash` against known
+mainnet values.
 
-- Local code computes `block_hash` and `index_block_hash` as derived fields.
-  Upstream exposes these via `StacksBlockHeader::block_hash()` /
-  `NakamotoBlockHeader::block_id()` etc.
-- The Nakamoto header's `pox_treatment` `BitVec` lives in
-  `stacks_common::bitvec::BitVec`. Local exposes both `data` and `bits`
-  fields; upstream exposes the bitvec directly so the encoder will need to
-  iterate the bits explicitly.
+## Future cleanup pass
 
-**Suggested approach**: Smaller than `stacks_tx`. Same pattern: decode
-upstream, wrap, leave encoder untouched.
+Phase one (this migration) deliberately preserved the local `struct`/`enum`
+types so the Neon encoder modules wouldn't need to change. Now that every
+consensus-decoding entry point goes through upstream first, a future
+self-contained pass can:
 
-## Workflow for a follow-up session
+1. Rewrite each `src/*/neon_encoder.rs` to emit JS objects directly from the
+   upstream types (e.g. `clarity::vm::types::Value`,
+   `blockstack_lib::chainstate::stacks::TransactionPostCondition`,
+   `blockstack_lib::chainstate::stacks::StacksTransaction`,
+   `blockstack_lib::chainstate::nakamoto::NakamotoBlock`, etc.).
+2. Delete the local `struct`/`enum` definitions and the corresponding
+   `convert_*` functions from each `src/*/deserialize.rs`.
+3. Inline the public `decode_*` entry points so they decode straight into
+   upstream and emit JS without an intermediate hop.
 
-1. Pick one module from the list above.
-2. Read its `deserialize.rs` and `neon_encoder.rs` to understand which fields
-   the JS-facing output depends on.
-3. Write a `convert_from_upstream` (or `From<&upstream_type>`) function that
-   produces the local type, populating any extra fields (offsets, cached raw
-   bytes, etc.) explicitly.
-4. Rewrite the public neon entry point to:
-   - Decode using upstream's `consensus_deserialize`.
-   - Convert to the local type.
-   - Call the unchanged `neon_encoder`.
-5. Delete the now-orphan code from the local `deserialize.rs` (keep only the
-   `struct` / `enum` declarations).
-6. Run `cargo test --lib` and `npm run build:dev && npm test` to validate.
-
-When all modules are done, a second pass can delete the local
-`struct`/`enum` types entirely and rewrite the `neon_encoder.rs` files
-against upstream types directly. The only remaining migration is
-`stacks_block`.
+This would cut another ~1500 LOC of "shadow types" but is purely a code-size
+/ maintainability win — runtime behavior is already identical.
 
 ## CI considerations
 

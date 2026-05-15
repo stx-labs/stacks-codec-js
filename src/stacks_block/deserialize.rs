@@ -1,10 +1,37 @@
+//! Stacks block deserialization.
+//!
+//! The Nakamoto block header is parsed via upstream's canonical
+//! `<NakamotoBlockHeader as StacksMessageCodec>::consensus_deserialize` in
+//! `stackslib` (every field is a fixed-width integer or opaque byte buffer,
+//! plus a length-prefixed signature vector and a `BitVec`, none of which
+//! upstream rejects on content).
+//!
+//! The Stacks 2.x block header is read field-by-field here, because upstream's
+//! parser validates the VRF proof bytes form a valid curve point and the JS
+//! test suite (and presumably user fixtures) rely on the historical permissive
+//! behavior of accepting any 80-byte buffer at that position.
+//!
+//! The block bodies (header + transactions vector) are read directly here so
+//! we don't pull in upstream's extra "block must contain at least one
+//! transaction" / merkle-root / unique-txid validations — those checks differ
+//! from what this crate has historically shipped (the JS test suite, for
+//! instance, exercises a zero-transaction Stacks 2.x block) and changing them
+//! would be a user-visible behavior change.
+
 use byteorder::{BigEndian, ReadBytesExt};
 use std::io::{Cursor, Read};
 
+use blockstack_lib::chainstate::nakamoto::NakamotoBlockHeader as UpstreamNakamotoBlockHeader;
+use blockstack_lib::chainstate::stacks::StacksTransaction as UpstreamStacksTransaction;
+use stacks_common::bitvec::BitVec as UpstreamBitVec;
+use stacks_common::codec::StacksMessageCodec;
+
 use crate::serialize_util::DeserializeError;
 use crate::stacks_tx::deserialize::{
-    BlockHeaderHash, MessageSignature, Sha512Trunc256Sum, StacksTransaction,
+    convert_transaction, BlockHeaderHash, MessageSignature, Sha512Trunc256Sum, StacksTransaction,
 };
+
+// ===== Local types (kept verbatim — the Neon encoder operates on these) =====
 
 /// Consensus hash - 20 bytes
 pub struct ConsensusHash(pub [u8; 20]);
@@ -15,47 +42,22 @@ pub struct StacksBlockId(pub [u8; 32]);
 /// Trie hash for MARF - 32 bytes
 pub struct TrieHash(pub [u8; 32]);
 
-/// A bitvector with a maximum size
+/// A bitvector with a maximum size.
+///
+/// Note: `get(i)` here uses MSB-first bit ordering within each byte (bit 0 is
+/// the most-significant bit of `data[0]`), which is *different* from upstream
+/// `stacks_common::bitvec::BitVec`'s LSB-first ordering. The JS-facing `bits`
+/// array has been shipping this MSB-first convention since the first release,
+/// so we deliberately preserve it here. The raw `data` bytes themselves are
+/// the canonical wire bytes, so the hex `data` field and the block-hash
+/// computation are unaffected by this choice.
 pub struct BitVec {
     pub data: Vec<u8>,
     pub len: u16,
 }
 
 impl BitVec {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>, max_size: u16) -> Result<Self, DeserializeError> {
-        let len = fd.read_u16::<BigEndian>()?;
-        if len == 0 {
-            return Err("BitVec lengths must be positive".into());
-        }
-        if len > max_size {
-            return Err(format!(
-                "BitVec length exceeded maximum. Max size = {}, len = {}",
-                max_size, len
-            )
-            .into());
-        }
-
-        let expected_data_len = Self::data_len(len);
-        let data_len = fd.read_u32::<BigEndian>()?;
-        if data_len as u16 != expected_data_len {
-            return Err(format!(
-                "BitVec data length mismatch: expected {}, got {}",
-                expected_data_len, data_len
-            )
-            .into());
-        }
-        let mut data = vec![0u8; data_len as usize];
-        fd.read_exact(&mut data)?;
-
-        Ok(BitVec { data, len })
-    }
-
-    /// Return the number of bytes needed to store `len` bits.
-    fn data_len(len: u16) -> u16 {
-        len / 8 + if len % 8 == 0 { 0 } else { 1 }
-    }
-
-    /// Get the value at the given index
+    /// Get the value at the given index (MSB-first within each byte).
     pub fn get(&self, index: u16) -> Option<bool> {
         if index >= self.len {
             return None;
@@ -68,83 +70,27 @@ impl BitVec {
 
 /// Header for a Nakamoto block (Stacks 3.x+)
 pub struct NakamotoBlockHeader {
-    /// Version byte
     pub version: u8,
-    /// The total number of StacksBlock and NakamotoBlocks preceding this block
     pub chain_length: u64,
-    /// Total amount of BTC spent producing the sortition that selected this block's miner
     pub burn_spent: u64,
-    /// The consensus hash of the burnchain block that selected this tenure
     pub consensus_hash: ConsensusHash,
-    /// The index block hash of the immediate parent of this block
     pub parent_block_id: StacksBlockId,
-    /// The root of a SHA512/256 merkle tree over all this block's transactions
     pub tx_merkle_root: Sha512Trunc256Sum,
-    /// The MARF trie root hash after this block has been processed
     pub state_index_root: TrieHash,
-    /// Unix timestamp of when this block was mined
     pub timestamp: u64,
-    /// Recoverable ECDSA signature from the tenure's miner
     pub miner_signature: MessageSignature,
-    /// Set of recoverable ECDSA signatures over the block header from the signer set
     pub signer_signature: Vec<MessageSignature>,
-    /// Bitvec indicating which reward addresses should be punished
     pub pox_treatment: BitVec,
 }
 
 impl NakamotoBlockHeader {
     pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let version = fd.read_u8()?;
-        let chain_length = fd.read_u64::<BigEndian>()?;
-        let burn_spent = fd.read_u64::<BigEndian>()?;
-
-        let mut consensus_hash_bytes = [0u8; 20];
-        fd.read_exact(&mut consensus_hash_bytes)?;
-        let consensus_hash = ConsensusHash(consensus_hash_bytes);
-
-        let mut parent_block_id_bytes = [0u8; 32];
-        fd.read_exact(&mut parent_block_id_bytes)?;
-        let parent_block_id = StacksBlockId(parent_block_id_bytes);
-
-        let mut tx_merkle_root_bytes = [0u8; 32];
-        fd.read_exact(&mut tx_merkle_root_bytes)?;
-        let tx_merkle_root = Sha512Trunc256Sum(tx_merkle_root_bytes);
-
-        let mut state_index_root_bytes = [0u8; 32];
-        fd.read_exact(&mut state_index_root_bytes)?;
-        let state_index_root = TrieHash(state_index_root_bytes);
-
-        let timestamp = fd.read_u64::<BigEndian>()?;
-
-        let mut miner_signature_bytes = [0u8; 65];
-        fd.read_exact(&mut miner_signature_bytes)?;
-        let miner_signature = MessageSignature(miner_signature_bytes);
-
-        // Read signer signatures (length-prefixed array)
-        let signer_sig_count = fd.read_u32::<BigEndian>()?;
-        let mut signer_signature = Vec::with_capacity(signer_sig_count as usize);
-        for _ in 0..signer_sig_count {
-            let mut sig_bytes = [0u8; 65];
-            fd.read_exact(&mut sig_bytes)?;
-            signer_signature.push(MessageSignature(sig_bytes));
-        }
-
-        // Read pox_treatment bitvec (max 4000 bits)
-        let pox_treatment = BitVec::deserialize(fd, 4000)?;
-
-        Ok(NakamotoBlockHeader {
-            version,
-            chain_length,
-            burn_spent,
-            consensus_hash,
-            parent_block_id,
-            tx_merkle_root,
-            state_index_root,
-            timestamp,
-            miner_signature,
-            signer_signature,
-            pox_treatment,
-        })
+        let upstream =
+            <UpstreamNakamotoBlockHeader as StacksMessageCodec>::consensus_deserialize(fd)
+                .map_err(|e| {
+                    DeserializeError::from(format!("Failed to decode Nakamoto block header: {}", e))
+                })?;
+        Ok(convert_nakamoto_header(&upstream))
     }
 
     /// Compute the block hash (sha512/256 of header fields excluding signer_signature).
@@ -198,14 +144,7 @@ pub struct NakamotoBlock {
 impl NakamotoBlock {
     pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
         let header = NakamotoBlockHeader::deserialize(fd)?;
-
-        // Read transactions (length-prefixed array)
-        let tx_count = fd.read_u32::<BigEndian>()?;
-        let mut txs = Vec::with_capacity(tx_count as usize);
-        for _ in 0..tx_count {
-            txs.push(StacksTransaction::deserialize(fd)?);
-        }
-
+        let txs = read_transactions(fd)?;
         Ok(NakamotoBlock { header, txs })
     }
 }
@@ -213,21 +152,13 @@ impl NakamotoBlock {
 /// Header for Stacks 2.x blocks
 pub struct StacksBlockHeader {
     pub version: u8,
-    /// Total work done on the chain tip this block builds on
     pub total_work: StacksWorkScore,
-    /// VRF proof
     pub proof: VRFProof,
-    /// Parent block hash
     pub parent_block: BlockHeaderHash,
-    /// Parent microblock hash
     pub parent_microblock: BlockHeaderHash,
-    /// Parent microblock sequence number
     pub parent_microblock_sequence: u16,
-    /// Merkle root of transactions
     pub tx_merkle_root: Sha512Trunc256Sum,
-    /// State index root (MARF trie)
     pub state_index_root: TrieHash,
-    /// Hash160 of the microblock public key
     pub microblock_pubkey_hash: [u8; 20],
 }
 
@@ -241,15 +172,23 @@ pub struct StacksWorkScore {
 pub struct VRFProof(pub [u8; 80]);
 
 impl StacksBlockHeader {
+    /// Deserialize a Stacks 2.x block header from the wire.
+    ///
+    /// We read each field directly here rather than delegating to upstream's
+    /// `StacksBlockHeader::consensus_deserialize`, because upstream validates
+    /// the VRF proof bytes form a valid curve point — and the JS test suite
+    /// (and presumably some user fixtures) rely on the historical permissive
+    /// behavior of accepting any 80-byte buffer at the VRF position. Every
+    /// field is otherwise either a fixed-size byte buffer or a fixed-width
+    /// integer, so there's no canonical-decoder dependency to lose by reading
+    /// them one at a time.
     pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
         let version = fd.read_u8()?;
 
-        // StacksWorkScore
         let burn = fd.read_u64::<BigEndian>()?;
         let work = fd.read_u64::<BigEndian>()?;
         let total_work = StacksWorkScore { burn, work };
 
-        // VRF proof (80 bytes)
         let mut proof_bytes = [0u8; 80];
         fd.read_exact(&mut proof_bytes)?;
         let proof = VRFProof(proof_bytes);
@@ -288,7 +227,14 @@ impl StacksBlockHeader {
         })
     }
 
-    /// Compute the block hash
+    /// Compute the block hash.
+    ///
+    /// This intentionally does *not* short-circuit on `total_work.work == 0`
+    /// the way upstream's `StacksBlockHeader::block_hash` does (it returns
+    /// `FIRST_STACKS_BLOCK_HASH` for the boot block). The local code has
+    /// shipped this unconditional hashing form since v1.0; preserving it
+    /// keeps the JS-facing output byte-identical for every block our users
+    /// have ever fed in.
     pub fn block_hash(&self) -> [u8; 32] {
         use sha2::{Digest, Sha512_256};
 
@@ -321,16 +267,72 @@ pub struct StacksBlock {
 impl StacksBlock {
     pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
         let header = StacksBlockHeader::deserialize(fd)?;
-
-        // Read transactions (length-prefixed array)
-        let tx_count = fd.read_u32::<BigEndian>()?;
-        let mut txs = Vec::with_capacity(tx_count as usize);
-        for _ in 0..tx_count {
-            txs.push(StacksTransaction::deserialize(fd)?);
-        }
-
+        let txs = read_transactions(fd)?;
         Ok(StacksBlock { header, txs })
     }
+}
+
+// ===== Conversion routines =====
+
+fn convert_nakamoto_header(upstream: &UpstreamNakamotoBlockHeader) -> NakamotoBlockHeader {
+    NakamotoBlockHeader {
+        version: upstream.version,
+        chain_length: upstream.chain_length,
+        burn_spent: upstream.burn_spent,
+        consensus_hash: ConsensusHash(upstream.consensus_hash.0),
+        parent_block_id: StacksBlockId(upstream.parent_block_id.0),
+        tx_merkle_root: Sha512Trunc256Sum(upstream.tx_merkle_root.0),
+        state_index_root: TrieHash(upstream.state_index_root.0),
+        timestamp: upstream.timestamp,
+        miner_signature: MessageSignature(upstream.miner_signature.0),
+        signer_signature: upstream
+            .signer_signature
+            .iter()
+            .map(|s| MessageSignature(s.0))
+            .collect(),
+        pox_treatment: convert_bitvec(&upstream.pox_treatment),
+    }
+}
+
+/// Lower an upstream `BitVec<MAX_SIZE>` into our local [`BitVec`] without
+/// touching upstream's private `data` field.
+///
+/// We round-trip through the canonical wire encoding (`u16 len`, `u32
+/// data_len`, then the raw bytes) and slice off the 6-byte header — the rest
+/// is the byte buffer we want to keep, byte-identical to what was on the
+/// wire.
+fn convert_bitvec<const MAX_SIZE: u16>(upstream: &UpstreamBitVec<MAX_SIZE>) -> BitVec {
+    let serialized = <UpstreamBitVec<MAX_SIZE> as StacksMessageCodec>::serialize_to_vec(upstream);
+    // 6 bytes = u16 len (2 bytes) + u32 data length prefix (4 bytes).
+    debug_assert!(serialized.len() >= 6);
+    let data = serialized[6..].to_vec();
+    BitVec {
+        data,
+        len: upstream.len(),
+    }
+}
+
+/// Read the length-prefixed transaction vector that follows a block header on
+/// the wire, dispatching to the upstream `StacksTransaction` codec for each
+/// entry and lowering the result into our local types.
+///
+/// We deliberately do *not* call upstream's `StacksBlock::consensus_deserialize`
+/// or `NakamotoBlock::consensus_deserialize` because they reject blocks that
+/// don't satisfy higher-level invariants (no zero-tx blocks, tx-merkle-root
+/// must match the header, no duplicate txids). Those checks differ from what
+/// this crate has historically shipped, and the JS test suite leans on the
+/// more permissive behavior.
+fn read_transactions(
+    fd: &mut Cursor<&[u8]>,
+) -> Result<Vec<StacksTransaction>, DeserializeError> {
+    let tx_count = fd.read_u32::<BigEndian>()?;
+    let mut txs = Vec::with_capacity(tx_count as usize);
+    for _ in 0..tx_count {
+        let upstream = <UpstreamStacksTransaction as StacksMessageCodec>::consensus_deserialize(fd)
+            .map_err(|e| DeserializeError::from(format!("Failed to decode block tx: {}", e)))?;
+        txs.push(convert_transaction(&upstream));
+    }
+    Ok(txs)
 }
 
 #[cfg(test)]
@@ -339,17 +341,13 @@ mod tests {
     use crate::hex::encode_hex;
 
     #[test]
-    fn test_bitvec_deserialize() {
-        // Test a simple bitvec with 8 bits (1 byte of data)
-        let data: Vec<u8> = vec![
-            0x00, 0x08, // len = 8
-            0x00, 0x00, 0x00, 0x01, // data_len = 1
-            0b10101010, // data
-        ];
-        let mut cursor = Cursor::new(data.as_ref());
-        let bitvec = BitVec::deserialize(&mut cursor, 4000).unwrap();
-        assert_eq!(bitvec.len, 8);
-        assert_eq!(bitvec.data, vec![0b10101010]);
+    fn test_bitvec_local_get_msb_first() {
+        // Sanity check: confirm the local `get()` keeps the MSB-first bit
+        // ordering that the JS-facing `bits` array has shipped with.
+        let bitvec = BitVec {
+            data: vec![0b10101010],
+            len: 8,
+        };
         assert_eq!(bitvec.get(0), Some(true));
         assert_eq!(bitvec.get(1), Some(false));
         assert_eq!(bitvec.get(7), Some(false));

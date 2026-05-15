@@ -6,11 +6,11 @@
 //! [`ClarityValue`] type so the rest of this crate (and the Neon encoder in
 //! particular) can keep their existing shapes and import paths.
 //!
-//! The smaller helpers (`ClarityName::deserialize`, `ContractName::deserialize`,
-//! `StandardPrincipalData::deserialize`) are kept here because the not-yet-
-//! migrated modules (`stacks_tx`, `post_condition`, `address`) still call them
-//! directly to parse standalone wire-format components. They will go away once
-//! those modules are migrated to upstream as well.
+//! The two remaining helper impls (`ClarityName::deserialize` and
+//! `StandardPrincipalData::deserialize`) are kept here because
+//! `address::decode_clarity_value_to_principal_inner` still calls them
+//! directly to parse partial principal byte streams. They could be migrated
+//! when that helper is itself rewritten on top of upstream.
 
 use byteorder::ReadBytesExt;
 use std::collections::BTreeMap;
@@ -75,31 +75,6 @@ impl TypePrefix {
             14 => Some(Self::StringUTF8),
             _ => None,
         }
-    }
-}
-
-impl ContractName {
-    pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let len_byte: u8 = fd.read_u8()?;
-        if (len_byte as usize) < CONTRACT_MIN_NAME_LENGTH
-            || (len_byte as usize) > CONTRACT_MAX_NAME_LENGTH
-        {
-            return Err(format!(
-                "Failed to deserialize contract name: too short or too long: {}",
-                len_byte
-            ))?;
-        }
-        let mut bytes = vec![0u8; len_byte as usize];
-        fd.read_exact(&mut bytes)?;
-
-        let s = String::from_utf8(bytes).map_err(|e| {
-            format!(
-                "Failed to parse Contract name: could not construct from utf8: {}",
-                e
-            )
-        })?;
-
-        Ok(ContractName(s))
     }
 }
 

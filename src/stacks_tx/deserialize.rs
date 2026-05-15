@@ -368,7 +368,12 @@ impl StacksTransaction {
 
 // ===== Conversion routines =====
 
-fn convert_transaction(upstream: &UpstreamStacksTransaction) -> StacksTransaction {
+/// Convert an upstream `StacksTransaction` into the local representation.
+///
+/// Exposed `pub(crate)` so the `stacks_block` migration can lower the
+/// transactions inside a parsed `StacksBlock` / `NakamotoBlock` without going
+/// through bytes again.
+pub(crate) fn convert_transaction(upstream: &UpstreamStacksTransaction) -> StacksTransaction {
     StacksTransaction {
         version: convert_version(upstream.version),
         chain_id: upstream.chain_id,
