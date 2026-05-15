@@ -168,7 +168,13 @@ impl ClarityValue {
     }
 }
 
-fn convert_value(upstream: &UpstreamValue, with_bytes: bool) -> Value {
+/// Convert an upstream `clarity::vm::types::Value` into the local [`Value`] enum.
+///
+/// Exposed `pub(crate)` so other modules that hold a parsed upstream Value
+/// (notably `post_condition::deserialize` for the Nonfungible variant's asset
+/// value, and the `stacks_tx` migration that follows) can reuse the same
+/// conversion without re-parsing from bytes.
+pub(crate) fn convert_value(upstream: &UpstreamValue, with_bytes: bool) -> Value {
     match upstream {
         UpstreamValue::Int(v) => Value::Int(*v),
         UpstreamValue::UInt(v) => Value::UInt(*v),
@@ -227,7 +233,9 @@ fn convert_value(upstream: &UpstreamValue, with_bytes: bool) -> Value {
     }
 }
 
-fn convert_clarity_value(upstream: &UpstreamValue, with_bytes: bool) -> ClarityValue {
+/// Convert an upstream Value into a local [`ClarityValue`] (with optional
+/// per-node `serialized_bytes` capture). See [`convert_value`] for context.
+pub(crate) fn convert_clarity_value(upstream: &UpstreamValue, with_bytes: bool) -> ClarityValue {
     let value = convert_value(upstream, with_bytes);
     let serialized_bytes = if with_bytes {
         // Use the StacksMessageCodec trait method (returns Vec<u8>) rather than

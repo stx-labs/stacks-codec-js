@@ -114,29 +114,48 @@ serialization round-trip on the hot path.
 The `clarity-value-to-json`, `clarity-value-to-repr`, and
 `clarity-value-list-decode` Jest suites pass unchanged.
 
+## Reference module: `src/post_condition/`
+
+Done. The hand-rolled `TransactionPostCondition::deserialize` (and its
+private `PostConditionPrincipal::deserialize` / `AssetInfo::deserialize`
+helpers) was replaced with a single delegation to upstream's canonical
+[`StacksMessageCodec`] impl in `stackslib`:
+
+- `src/post_condition/deserialize.rs`:
+  - `TransactionPostCondition::deserialize` now calls
+    `<blockstack_lib::chainstate::stacks::TransactionPostCondition as
+    StacksMessageCodec>::consensus_deserialize(fd)` and runs
+    `convert_post_condition` to lower the result into the local enum tree.
+  - The local enums (`TransactionPostCondition`, `PostConditionPrincipal`,
+    `AssetInfo`, `AssetInfoID`, `PostConditionPrincipalID`,
+    `FungibleConditionCode`, `NonfungibleConditionCode`) are kept verbatim
+    so the Neon encoder doesn't need to change. `From<UpstreamX>` impls are
+    provided for the two condition-code enums to keep the converter
+    straight-line.
+  - For the Nonfungible variant's asset value, we reuse
+    `crate::clarity_value::deserialize::convert_clarity_value(_, true)`,
+    which already knows how to capture per-node `serialized_bytes` for the
+    Neon encoder.
+  - The `StacksAddress::deserialize` impl stays put — it's still called by
+    `stacks_tx::deserialize`. It will move (or vanish entirely) when that
+    module is migrated next.
+- `src/post_condition/neon_encoder.rs` — unchanged.
+- `src/post_condition/mod.rs` — unchanged. The public Neon entry point
+  `decode_tx_post_conditions` keeps its current shape.
+
+**Bytes-capture nuance**: Same as `clarity_value` — Clarity wire encoding is
+canonical, so the Nonfungible asset value's per-node `hex` field stays
+byte-identical because it's recovered via `serialize_to_vec` round-trip.
+
+The `post-conditions` and `tx-decode*` Jest suites pass unchanged, as does
+the `post_condition::tests::test_decode_samples` regression test that runs
+the gzipped corpus of real on-chain post-conditions through the new path.
+
+To preserve this code path's reuse, the helper
+`crate::clarity_value::deserialize::convert_clarity_value` was promoted from
+private to `pub(crate)`.
+
 ## Remaining modules
-
-### `src/post_condition/` — ~480 LOC
-
-**Upstream targets**:
-
-- `blockstack_lib::chainstate::stacks::TransactionPostCondition` (enum with
-  STX / Fungible / Nonfungible variants).
-- `blockstack_lib::chainstate::stacks::{AssetInfo, AssetInfoID,
-  FungibleConditionCode, NonfungibleConditionCode, PostConditionPrincipal,
-  PostConditionPrincipalID}`.
-- `TransactionPostConditionMode` (includes the new `Originator` SIP-040 variant
-  upstream).
-
-**Hazards**:
-
-- Local `PostConditionPrincipal` uses `Origin`/`Standard`/`Contract`. Upstream
-  matches exactly, so the conversion is a 1:1 `match`.
-- Upstream's `AssetInfo` carries `contract_address: StacksAddress` whose fields
-  are private; access via `.version()` / `.bytes()`.
-
-**Suggested approach**: Same as Clarity values — write a `From<&upstream::T>`
-for each local type, decode with upstream, convert at the boundary.
 
 ### `src/stacks_tx/` — ~1700 LOC, the biggest
 

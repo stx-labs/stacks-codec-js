@@ -1,9 +1,29 @@
-use byteorder::{BigEndian, ReadBytesExt};
-use std::{
-    convert::{TryFrom, TryInto},
-    io::{Cursor, Read},
-};
+//! Transaction post-condition deserialization.
+//!
+//! The wire-format parser is now delegated to upstream's canonical
+//! `<TransactionPostCondition as StacksMessageCodec>::consensus_deserialize`
+//! implementation in `stackslib`. This module keeps the local enum / struct
+//! definitions because the Neon encoder operates on them directly, and converts
+//! the upstream value tree to the local one at the boundary.
+//!
+//! The `StacksAddress::deserialize` impl is retained here because the
+//! not-yet-migrated `stacks_tx` module still calls it. It will move once that
+//! module is migrated.
 
+use byteorder::ReadBytesExt;
+use std::convert::TryFrom;
+use std::io::{Cursor, Read};
+
+use blockstack_lib::chainstate::stacks::{
+    AssetInfo as UpstreamAssetInfo, FungibleConditionCode as UpstreamFungibleConditionCode,
+    NonfungibleConditionCode as UpstreamNonfungibleConditionCode,
+    PostConditionPrincipal as UpstreamPostConditionPrincipal,
+    TransactionPostCondition as UpstreamTransactionPostCondition,
+};
+use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksAddress as UpstreamStacksAddress;
+
+use crate::clarity_value::deserialize::convert_clarity_value;
 use crate::clarity_value::types::{ClarityName, ClarityValue};
 use crate::{address::stacks_address::StacksAddress, serialize_util::DeserializeError};
 
@@ -62,6 +82,18 @@ impl TryFrom<u8> for FungibleConditionCode {
     }
 }
 
+impl From<UpstreamFungibleConditionCode> for FungibleConditionCode {
+    fn from(v: UpstreamFungibleConditionCode) -> Self {
+        match v {
+            UpstreamFungibleConditionCode::SentEq => FungibleConditionCode::SentEq,
+            UpstreamFungibleConditionCode::SentGt => FungibleConditionCode::SentGt,
+            UpstreamFungibleConditionCode::SentGe => FungibleConditionCode::SentGe,
+            UpstreamFungibleConditionCode::SentLt => FungibleConditionCode::SentLt,
+            UpstreamFungibleConditionCode::SentLe => FungibleConditionCode::SentLe,
+        }
+    }
+}
+
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum NonfungibleConditionCode {
@@ -83,6 +115,16 @@ impl TryFrom<u8> for NonfungibleConditionCode {
     }
 }
 
+impl From<UpstreamNonfungibleConditionCode> for NonfungibleConditionCode {
+    fn from(v: UpstreamNonfungibleConditionCode) -> Self {
+        match v {
+            UpstreamNonfungibleConditionCode::Sent => NonfungibleConditionCode::Sent,
+            UpstreamNonfungibleConditionCode::NotSent => NonfungibleConditionCode::NotSent,
+            UpstreamNonfungibleConditionCode::MaybeSent => NonfungibleConditionCode::MaybeSent,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct AssetInfo {
     pub contract_address: StacksAddress,
@@ -98,84 +140,19 @@ pub enum AssetInfoID {
 }
 
 impl TransactionPostCondition {
+    /// Deserialize a single post-condition entry from the wire format.
+    ///
+    /// Delegates to upstream's canonical
+    /// [`StacksMessageCodec::consensus_deserialize`] for
+    /// `TransactionPostCondition` and adapts the resulting value tree into the
+    /// local enums so the existing Neon encoder doesn't need to change.
     pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let asset_info_id: u8 = fd.read_u8()?;
-        let postcond = match asset_info_id {
-            x if x == AssetInfoID::STX as u8 => {
-                let principal = PostConditionPrincipal::deserialize(fd)?;
-                let condition_u8: u8 = fd.read_u8()?;
-                let amount: u64 = fd.read_u64::<BigEndian>()?;
-
-                let condition_code: FungibleConditionCode =
-                    condition_u8.try_into().map_err(|_| {
-                        format!("Error parsing FungibleConditionCode: {}", condition_u8)
-                    })?;
-
-                TransactionPostCondition::STX(principal, condition_code, amount)
-            }
-            x if x == AssetInfoID::FungibleAsset as u8 => {
-                let principal = PostConditionPrincipal::deserialize(fd)?;
-                let asset = AssetInfo::deserialize(fd)?;
-                let condition_u8: u8 = fd.read_u8()?;
-                let amount: u64 = fd.read_u64::<BigEndian>()?;
-
-                let condition_code: FungibleConditionCode =
-                    condition_u8.try_into().map_err(|_| {
-                        format!("Error parsing FungibleConditionCode: {}", condition_u8)
-                    })?;
-
-                TransactionPostCondition::Fungible(principal, asset, condition_code, amount)
-            }
-            x if x == AssetInfoID::NonfungibleAsset as u8 => {
-                let principal = PostConditionPrincipal::deserialize(fd)?;
-                let asset = AssetInfo::deserialize(fd)?;
-                let asset_value = {
-                    let cursor_pos = fd.position();
-                    let mut val = ClarityValue::deserialize(fd, false)
-                        .map_err(|e| format!("Error deserializing Clarity value: {}", e))?;
-                    let decoded_bytes = &fd.get_ref()[cursor_pos as usize..fd.position() as usize];
-                    val.serialized_bytes = Some(decoded_bytes.to_vec());
-                    val
-                };
-                let condition_u8: u8 = fd.read_u8()?;
-
-                let condition_code: NonfungibleConditionCode =
-                    condition_u8.try_into().map_err(|_| {
-                        format!("Error parsing NonfungibleConditionCode: {}", condition_u8)
-                    })?;
-
-                TransactionPostCondition::Nonfungible(principal, asset, asset_value, condition_code)
-            }
-            _ => Err(format!(
-                "Failed to parse transaction: unknown asset info ID {}",
-                asset_info_id
-            ))?,
-        };
-
-        Ok(postcond)
-    }
-}
-
-impl PostConditionPrincipal {
-    fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let principal_id: u8 = fd.read_u8()?;
-        let principal = match principal_id {
-            x if x == PostConditionPrincipalID::Origin as u8 => PostConditionPrincipal::Origin,
-            x if x == PostConditionPrincipalID::Standard as u8 => {
-                let addr = StacksAddress::deserialize(fd)?;
-                PostConditionPrincipal::Standard(addr)
-            }
-            x if x == PostConditionPrincipalID::Contract as u8 => {
-                let addr = StacksAddress::deserialize(fd)?;
-                let contract_name = ClarityName::deserialize(fd)?;
-                PostConditionPrincipal::Contract(addr, contract_name)
-            }
-            _ => Err(format!(
-                "Failed to parse transaction: unknown post condition principal ID {}",
-                principal_id
-            ))?,
-        };
-        Ok(principal)
+        let upstream =
+            <UpstreamTransactionPostCondition as StacksMessageCodec>::consensus_deserialize(fd)
+                .map_err(|e| {
+                    DeserializeError::from(format!("Failed to decode post-condition: {}", e))
+                })?;
+        Ok(convert_post_condition(&upstream))
     }
 }
 
@@ -191,15 +168,63 @@ impl StacksAddress {
     }
 }
 
-impl AssetInfo {
-    fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
-        let contract_address = StacksAddress::deserialize(fd)?;
-        let contract_name = ClarityName::deserialize(fd)?;
-        let asset_name = ClarityName::deserialize(fd)?;
-        Ok(AssetInfo {
-            contract_address,
-            contract_name,
-            asset_name,
-        })
+fn convert_post_condition(upstream: &UpstreamTransactionPostCondition) -> TransactionPostCondition {
+    match upstream {
+        UpstreamTransactionPostCondition::STX(principal, code, amount) => {
+            TransactionPostCondition::STX(
+                convert_principal(principal),
+                FungibleConditionCode::from(*code),
+                *amount,
+            )
+        }
+        UpstreamTransactionPostCondition::Fungible(principal, asset, code, amount) => {
+            TransactionPostCondition::Fungible(
+                convert_principal(principal),
+                convert_asset_info(asset),
+                FungibleConditionCode::from(*code),
+                *amount,
+            )
+        }
+        UpstreamTransactionPostCondition::Nonfungible(principal, asset, value, code) => {
+            // The neon encoder unwraps `serialized_bytes.as_ref().unwrap()` for
+            // the asset value, so we must capture the canonical hex form here.
+            TransactionPostCondition::Nonfungible(
+                convert_principal(principal),
+                convert_asset_info(asset),
+                convert_clarity_value(value, true),
+                NonfungibleConditionCode::from(*code),
+            )
+        }
     }
 }
+
+fn convert_principal(upstream: &UpstreamPostConditionPrincipal) -> PostConditionPrincipal {
+    match upstream {
+        UpstreamPostConditionPrincipal::Origin => PostConditionPrincipal::Origin,
+        UpstreamPostConditionPrincipal::Standard(addr) => {
+            PostConditionPrincipal::Standard(convert_address(addr))
+        }
+        UpstreamPostConditionPrincipal::Contract(addr, contract_name) => {
+            PostConditionPrincipal::Contract(
+                convert_address(addr),
+                ClarityName(contract_name.to_string()),
+            )
+        }
+    }
+}
+
+fn convert_asset_info(upstream: &UpstreamAssetInfo) -> AssetInfo {
+    AssetInfo {
+        contract_address: convert_address(&upstream.contract_address),
+        contract_name: ClarityName(upstream.contract_name.to_string()),
+        asset_name: ClarityName(upstream.asset_name.to_string()),
+    }
+}
+
+fn convert_address(upstream: &UpstreamStacksAddress) -> StacksAddress {
+    StacksAddress {
+        version: upstream.version(),
+        hash160_bytes: upstream.bytes().0,
+    }
+}
+
