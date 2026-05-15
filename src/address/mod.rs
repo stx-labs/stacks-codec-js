@@ -133,7 +133,7 @@ pub fn stacks_address_from_parts(mut cx: FunctionContext) -> JsResult<JsString> 
     let version = cx.argument::<JsNumber>(0)?.value(&mut cx);
     let stacks_address = arg_as_bytes(&mut cx, 1, |bytes| {
         let addr = c32_address(version as u8, bytes)
-            .or_else(|e| Err(format!("Error converting to C32 address: {}", e)))?;
+            .map_err(|e| format!("Error converting to C32 address: {}", e))?;
         Ok(addr)
     })
     .or_else(|e| cx.throw_error(e)?)?;

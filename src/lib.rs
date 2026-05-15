@@ -12,8 +12,8 @@ use crate::clarity_value::{
     decode_clarity_value_type_name,
 };
 use crate::memo::memo_to_string;
-use crate::pox_events::decode_pox_event;
 use crate::post_condition::decode_tx_post_conditions;
+use crate::pox_events::decode_pox_event;
 use crate::stacks_block::{decode_nakamoto_block, decode_stacks_block};
 use crate::stacks_tx::decode_transaction;
 
@@ -22,8 +22,8 @@ pub mod clarity_value;
 pub mod hex;
 pub mod memo;
 pub mod neon_util;
-pub mod pox_events;
 pub mod post_condition;
+pub mod pox_events;
 pub mod serialize_util;
 pub mod stacks_block;
 pub mod stacks_tx;

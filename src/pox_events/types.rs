@@ -8,7 +8,7 @@ pub enum StacksNetwork {
 }
 
 impl StacksNetwork {
-    pub fn from_str(s: &str) -> Result<Self, String> {
+    pub fn parse(s: &str) -> Result<Self, String> {
         match s {
             "mainnet" => Ok(StacksNetwork::Mainnet),
             "testnet" => Ok(StacksNetwork::Testnet),
@@ -41,7 +41,7 @@ pub enum PoxEventName {
 }
 
 impl PoxEventName {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "handle-unlock" => Some(PoxEventName::HandleUnlock),
             "stack-stx" => Some(PoxEventName::StackStx),
@@ -52,9 +52,7 @@ impl PoxEventName {
             "delegate-stack-increase" => Some(PoxEventName::DelegateStackIncrease),
             "delegate-stack-extend" => Some(PoxEventName::DelegateStackExtend),
             "stack-aggregation-commit" => Some(PoxEventName::StackAggregationCommit),
-            "stack-aggregation-commit-indexed" => {
-                Some(PoxEventName::StackAggregationCommitIndexed)
-            }
+            "stack-aggregation-commit-indexed" => Some(PoxEventName::StackAggregationCommitIndexed),
             "stack-aggregation-increase" => Some(PoxEventName::StackAggregationIncrease),
             "revoke-delegate-stx" => Some(PoxEventName::RevokeDelegateStx),
             _ => None,

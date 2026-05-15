@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use clarity::vm::types::{
-    CharType, PrincipalData, SequenceData, Value as UpstreamValue,
-};
+use clarity::vm::types::{CharType, PrincipalData, SequenceData, Value as UpstreamValue};
 use clarity::vm::ClarityName;
 
 use crate::hex::encode_hex;
@@ -50,8 +48,7 @@ pub fn decode_pox_synthetic_event(
     // 4. Extract event name
     let name_str = match get_tuple_field(op_data, "name")? {
         UpstreamValue::Sequence(SequenceData::String(CharType::ASCII(s))) => {
-            String::from_utf8(s.data.clone())
-                .map_err(|e| format!("Invalid event name: {}", e))?
+            String::from_utf8(s.data.clone()).map_err(|e| format!("Invalid event name: {}", e))?
         }
         other => {
             return Err(format!(
@@ -61,7 +58,7 @@ pub fn decode_pox_synthetic_event(
         }
     };
 
-    let event_name = PoxEventName::from_str(&name_str)
+    let event_name = PoxEventName::parse(&name_str)
         .ok_or_else(|| format!("Unexpected PoX synthetic event data name: {}", name_str))?;
 
     // 5. Extract inner data tuple
@@ -107,18 +104,15 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::StackStx => {
-            let lock_amount =
-                extract_uint(get_tuple_field(event_data_tuple, "lock-amount")?)?;
-            let lock_period =
-                extract_uint(get_tuple_field(event_data_tuple, "lock-period")?)?;
+            let lock_amount = extract_uint(get_tuple_field(event_data_tuple, "lock-amount")?)?;
+            let lock_period = extract_uint(get_tuple_field(event_data_tuple, "lock-period")?)?;
             let start_burn_height =
                 extract_uint(get_tuple_field(event_data_tuple, "start-burn-height")?)?;
             let unlock_burn_height =
                 extract_uint(get_tuple_field(event_data_tuple, "unlock-burn-height")?)?;
             let signer_key =
                 extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -137,14 +131,11 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::StackIncrease => {
-            let increase_by =
-                extract_uint(get_tuple_field(event_data_tuple, "increase-by")?)?;
-            let total_locked =
-                extract_uint(get_tuple_field(event_data_tuple, "total-locked")?)?;
+            let increase_by = extract_uint(get_tuple_field(event_data_tuple, "increase-by")?)?;
+            let total_locked = extract_uint(get_tuple_field(event_data_tuple, "total-locked")?)?;
             let signer_key =
                 extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -160,14 +151,12 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::StackExtend => {
-            let extend_count =
-                extract_uint(get_tuple_field(event_data_tuple, "extend-count")?)?;
+            let extend_count = extract_uint(get_tuple_field(event_data_tuple, "extend-count")?)?;
             let unlock_burn_height =
                 extract_uint(get_tuple_field(event_data_tuple, "unlock-burn-height")?)?;
             let signer_key =
                 extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -182,15 +171,14 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::DelegateStx => {
-            let amount_ustx =
-                extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
-            let delegate_to = clarity_principal_to_string(
-                get_tuple_field(event_data_tuple, "delegate-to")?,
-            )?;
-            let unlock_burn_height_opt =
-                extract_optional_uint(Some(get_tuple_field(event_data_tuple, "unlock-burn-height")?))?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let amount_ustx = extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
+            let delegate_to =
+                clarity_principal_to_string(get_tuple_field(event_data_tuple, "delegate-to")?)?;
+            let unlock_burn_height_opt = extract_optional_uint(Some(get_tuple_field(
+                event_data_tuple,
+                "unlock-burn-height",
+            )?))?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -207,19 +195,15 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::DelegateStackStx => {
-            let lock_amount =
-                extract_uint(get_tuple_field(event_data_tuple, "lock-amount")?)?;
+            let lock_amount = extract_uint(get_tuple_field(event_data_tuple, "lock-amount")?)?;
             let unlock_burn_height =
                 extract_uint(get_tuple_field(event_data_tuple, "unlock-burn-height")?)?;
             let start_burn_height =
                 extract_uint(get_tuple_field(event_data_tuple, "start-burn-height")?)?;
-            let lock_period =
-                extract_uint(get_tuple_field(event_data_tuple, "lock-period")?)?;
-            let delegator = clarity_principal_to_string(
-                get_tuple_field(event_data_tuple, "delegator")?,
-            )?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let lock_period = extract_uint(get_tuple_field(event_data_tuple, "lock-period")?)?;
+            let delegator =
+                clarity_principal_to_string(get_tuple_field(event_data_tuple, "delegator")?)?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -238,15 +222,11 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::DelegateStackIncrease => {
-            let increase_by =
-                extract_uint(get_tuple_field(event_data_tuple, "increase-by")?)?;
-            let total_locked =
-                extract_uint(get_tuple_field(event_data_tuple, "total-locked")?)?;
-            let delegator = clarity_principal_to_string(
-                get_tuple_field(event_data_tuple, "delegator")?,
-            )?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let increase_by = extract_uint(get_tuple_field(event_data_tuple, "increase-by")?)?;
+            let total_locked = extract_uint(get_tuple_field(event_data_tuple, "total-locked")?)?;
+            let delegator =
+                clarity_principal_to_string(get_tuple_field(event_data_tuple, "delegator")?)?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -264,13 +244,10 @@ pub fn decode_pox_synthetic_event(
         PoxEventName::DelegateStackExtend => {
             let unlock_burn_height =
                 extract_uint(get_tuple_field(event_data_tuple, "unlock-burn-height")?)?;
-            let extend_count =
-                extract_uint(get_tuple_field(event_data_tuple, "extend-count")?)?;
-            let delegator = clarity_principal_to_string(
-                get_tuple_field(event_data_tuple, "delegator")?,
-            )?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let extend_count = extract_uint(get_tuple_field(event_data_tuple, "extend-count")?)?;
+            let delegator =
+                clarity_principal_to_string(get_tuple_field(event_data_tuple, "delegator")?)?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -285,14 +262,11 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::StackAggregationCommit => {
-            let reward_cycle =
-                extract_uint(get_tuple_field(event_data_tuple, "reward-cycle")?)?;
-            let amount_ustx =
-                extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
+            let reward_cycle = extract_uint(get_tuple_field(event_data_tuple, "reward-cycle")?)?;
+            let amount_ustx = extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
             let signer_key =
                 extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -305,14 +279,11 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::StackAggregationCommitIndexed => {
-            let reward_cycle =
-                extract_uint(get_tuple_field(event_data_tuple, "reward-cycle")?)?;
-            let amount_ustx =
-                extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
+            let reward_cycle = extract_uint(get_tuple_field(event_data_tuple, "reward-cycle")?)?;
+            let amount_ustx = extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
             let signer_key =
                 extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -325,12 +296,9 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::StackAggregationIncrease => {
-            let reward_cycle =
-                extract_uint(get_tuple_field(event_data_tuple, "reward-cycle")?)?;
-            let amount_ustx =
-                extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let reward_cycle = extract_uint(get_tuple_field(event_data_tuple, "reward-cycle")?)?;
+            let amount_ustx = extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -342,11 +310,9 @@ pub fn decode_pox_synthetic_event(
             }
         }
         PoxEventName::RevokeDelegateStx => {
-            let delegate_to = clarity_principal_to_string(
-                get_tuple_field(event_data_tuple, "delegate-to")?,
-            )?;
-            let end_cycle_id =
-                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
+            let delegate_to =
+                clarity_principal_to_string(get_tuple_field(event_data_tuple, "delegate-to")?)?;
+            let end_cycle_id = extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
                 extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
@@ -381,8 +347,7 @@ fn get_tuple_field<'a>(
     tuple: &'a BTreeMap<ClarityName, UpstreamValue>,
     key: &str,
 ) -> Result<&'a UpstreamValue, String> {
-    tuple_get(tuple, key)
-        .ok_or_else(|| format!("Missing expected tuple field: {}", key))
+    tuple_get(tuple, key).ok_or_else(|| format!("Missing expected tuple field: {}", key))
 }
 
 fn extract_uint(val: &UpstreamValue) -> Result<u128, String> {
@@ -423,9 +388,7 @@ fn extract_optional_uint(val: Option<&UpstreamValue>) -> Result<Option<u128>, St
 /// - `OptionalNone` → `Ok(None)`
 /// - `Buffer(bytes)` → `Ok(Some("0x..."))`
 /// - `OptionalSome(Buffer(bytes))` → `Ok(Some("0x..."))`
-fn extract_optional_buffer_hex(
-    val: Option<&UpstreamValue>,
-) -> Result<Option<String>, String> {
+fn extract_optional_buffer_hex(val: Option<&UpstreamValue>) -> Result<Option<String>, String> {
     let Some(cv) = val else { return Ok(None) };
     match cv {
         UpstreamValue::Sequence(SequenceData::Buffer(b)) => {
@@ -531,10 +494,7 @@ fn extract_pox_addr(
         version_bytes[0]
     };
 
-    let btc_addr = match pox_address_to_btc_address(version, &hashbytes, network) {
-        Ok(addr) => Some(addr),
-        Err(_) => None,
-    };
+    let btc_addr = pox_address_to_btc_address(version, &hashbytes, network).ok();
 
     Ok((btc_addr, Some(raw_hex)))
 }

@@ -36,10 +36,10 @@ use crate::neon_util::{Encode, NeonJsSerialize};
 
 use super::deserialize::{
     CoinbasePayload, MultisigSpendingCondition, OrderIndependentMultisigSpendingCondition,
-    SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction,
-    TenureChangePayload, TransactionAuth, TransactionAuthField, TransactionAuthFieldID,
-    TransactionAuthFlags, TransactionContractCall, TransactionPayload, TransactionPayloadID,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction, TenureChangePayload,
+    TransactionAuth, TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,
+    TransactionContractCall, TransactionPayload, TransactionPayloadID, TransactionSmartContract,
+    TransactionSpendingCondition, TransactionVersion,
 };
 
 /// Context threaded into the spending-condition encoder so it can lift the
@@ -95,8 +95,7 @@ impl NeonJsSerialize for Encode<'_, StacksTransaction> {
         // Wire format: `[1 byte mode] [4-byte BE length] [N * encoded post-condition]`.
         // Clarity / post-condition encoding is canonical so re-serializing
         // produces the same bytes that were on the wire.
-        let mut post_conditions_buf =
-            Vec::<u8>::with_capacity(5 + tx.post_conditions.len() * 32);
+        let mut post_conditions_buf = Vec::<u8>::with_capacity(5 + tx.post_conditions.len() * 32);
         post_conditions_buf.push(post_condition_mode_byte);
         post_conditions_buf.extend_from_slice(&(tx.post_conditions.len() as u32).to_be_bytes());
 
@@ -237,7 +236,7 @@ impl NeonJsSerialize<TxSerializationContext> for Encode<'_, SinglesigSpendingCon
         let tx_fee = cx.string(cond.tx_fee.to_string());
         obj.set(cx, "tx_fee", tx_fee)?;
 
-        let key_encoding = cx.number(cond.key_encoding.clone() as u8);
+        let key_encoding = cx.number(cond.key_encoding as u8);
         obj.set(cx, "key_encoding", key_encoding)?;
 
         let signature = cx.string(encode_hex(&cond.signature.0));

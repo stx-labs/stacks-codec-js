@@ -91,10 +91,10 @@ where
 {
     let input_arg: Handle<JsValue> = cx
         .argument(arg_index as usize)
-        .or_else(|e| Err(format!("Error getting function arg {}: {}", arg_index, e)))?;
+        .map_err(|e| format!("Error getting function arg {}: {}", arg_index, e))?;
     if let Ok(handle) = input_arg.downcast::<JsString, _>(cx) {
         let val_bytes =
-            decode_hex(handle.value(cx)).or_else(|e| Err(format!("Hex parsing error: {}", e)))?;
+            decode_hex(handle.value(cx)).map_err(|e| format!("Hex parsing error: {}", e))?;
         cb(&val_bytes)
     } else if let Ok(handle) = input_arg.downcast::<JsBuffer, _>(cx) {
         let slice = handle.as_slice(cx);

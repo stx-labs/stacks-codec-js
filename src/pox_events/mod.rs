@@ -21,8 +21,7 @@ pub fn decode_pox_event(mut cx: FunctionContext) -> JsResult<JsValue> {
     let val_bytes = arg_as_bytes_copied(&mut cx, 0)?;
 
     let network_str = cx.argument::<JsString>(1)?.value(&mut cx);
-    let network = StacksNetwork::from_str(&network_str)
-        .or_else(|e| cx.throw_error(e))?;
+    let network = StacksNetwork::parse(&network_str).or_else(|e| cx.throw_error(e))?;
 
     let mut cursor: Cursor<&[u8]> = Cursor::new(&val_bytes);
     let clarity_value =

@@ -8,13 +8,13 @@
 use std::io::Cursor;
 
 pub use blockstack_lib::chainstate::stacks::{
-    CoinbasePayload, MultisigHashMode, MultisigSpendingCondition,
-    OrderIndependentMultisigHashMode, OrderIndependentMultisigSpendingCondition, SinglesigHashMode,
-    SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction, TenureChangeCause,
-    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionAuthField,
-    TransactionAuthFieldID, TransactionAuthFlags, TransactionContractCall, TransactionPayload,
-    TransactionPayloadID, TransactionPostConditionMode, TransactionPublicKeyEncoding,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+    CoinbasePayload, MultisigHashMode, MultisigSpendingCondition, OrderIndependentMultisigHashMode,
+    OrderIndependentMultisigSpendingCondition, SinglesigHashMode, SinglesigSpendingCondition,
+    StacksMicroblockHeader, StacksTransaction, TenureChangeCause, TenureChangePayload,
+    TransactionAnchorMode, TransactionAuth, TransactionAuthField, TransactionAuthFieldID,
+    TransactionAuthFlags, TransactionContractCall, TransactionPayload, TransactionPayloadID,
+    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
+    TransactionSpendingCondition, TransactionVersion,
 };
 pub use clarity::vm::ClarityVersion;
 use stacks_codec::StacksMessageCodec;
@@ -67,7 +67,10 @@ mod tests {
         let mut cursor = Cursor::new(bytes.as_ref());
         let tx = deserialize_transaction(&mut cursor).unwrap();
         assert_eq!(cursor.position() as usize, bytes_len);
-        assert_eq!(tx.post_condition_mode, TransactionPostConditionMode::Originator);
+        assert_eq!(
+            tx.post_condition_mode,
+            TransactionPostConditionMode::Originator
+        );
         assert_eq!(tx.post_conditions.len(), 1);
         assert_eq!(
             tx.post_conditions[0],
@@ -87,7 +90,10 @@ mod tests {
         let mut cursor = Cursor::new(bytes.as_ref());
         let tx = deserialize_transaction(&mut cursor).unwrap();
         assert_eq!(cursor.position() as usize, bytes_len);
-        assert_eq!(tx.post_condition_mode, TransactionPostConditionMode::Originator);
+        assert_eq!(
+            tx.post_condition_mode,
+            TransactionPostConditionMode::Originator
+        );
         assert_eq!(tx.post_conditions.len(), 1);
         assert_eq!(
             tx.post_conditions[0],
@@ -112,7 +118,10 @@ mod tests {
         let mut cursor = Cursor::new(bytes.as_ref());
         let tx = deserialize_transaction(&mut cursor).unwrap();
         assert_eq!(cursor.position() as usize, bytes_len);
-        assert_eq!(tx.post_condition_mode, TransactionPostConditionMode::Originator);
+        assert_eq!(
+            tx.post_condition_mode,
+            TransactionPostConditionMode::Originator
+        );
         assert_eq!(tx.post_conditions.len(), 1);
         assert_eq!(
             tx.post_conditions[0],
@@ -162,7 +171,10 @@ mod tests {
         let mut cursor = Cursor::new(bytes.as_ref());
         let tx = deserialize_transaction(&mut cursor).unwrap();
         assert_eq!(cursor.position() as usize, bytes_len);
-        assert_eq!(tx.post_condition_mode, TransactionPostConditionMode::Originator);
+        assert_eq!(
+            tx.post_condition_mode,
+            TransactionPostConditionMode::Originator
+        );
         assert_eq!(tx.post_conditions.len(), 2);
     }
 }

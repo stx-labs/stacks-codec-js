@@ -26,7 +26,7 @@ pub fn pox_address_to_btc_address(
             Ok(b58::check_encode_slice(&data))
         }
         // P2SH, P2SH-P2WPKH, P2SH-P2WSH
-        1 | 2 | 3 => {
+        1..=3 => {
             let btc_version: u8 = if network.is_mainnet() { 0x05 } else { 0xc4 };
             let mut data = vec![btc_version];
             data.extend_from_slice(hashbytes);
@@ -117,8 +117,7 @@ mod tests {
     fn test_p2wsh_mainnet() {
         // version 5 → segwit v0, 32-byte witness program
         let hash =
-            decode_hex("1863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262")
-                .unwrap();
+            decode_hex("1863143c14c5166804bd19203356da136c985678cd4d27a1b8c6329604903262").unwrap();
         let addr = pox_address_to_btc_address(5, &hash, StacksNetwork::Mainnet).unwrap();
         assert!(addr.starts_with("bc1q"));
     }
@@ -127,8 +126,7 @@ mod tests {
     fn test_p2tr_mainnet() {
         // version 6 → segwit v1, 32-byte witness program
         let hash =
-            decode_hex("a60869f0dbcf1dc659c9cecbee090449d6a21c3d5c31a381c39af694d10c8b3e")
-                .unwrap();
+            decode_hex("a60869f0dbcf1dc659c9cecbee090449d6a21c3d5c31a381c39af694d10c8b3e").unwrap();
         let addr = pox_address_to_btc_address(6, &hash, StacksNetwork::Mainnet).unwrap();
         assert!(addr.starts_with("bc1p"));
     }
@@ -143,8 +141,7 @@ mod tests {
     #[test]
     fn test_p2tr_testnet() {
         let hash =
-            decode_hex("a60869f0dbcf1dc659c9cecbee090449d6a21c3d5c31a381c39af694d10c8b3e")
-                .unwrap();
+            decode_hex("a60869f0dbcf1dc659c9cecbee090449d6a21c3d5c31a381c39af694d10c8b3e").unwrap();
         let addr = pox_address_to_btc_address(6, &hash, StacksNetwork::Testnet).unwrap();
         assert!(addr.starts_with("bcrt1p"));
     }

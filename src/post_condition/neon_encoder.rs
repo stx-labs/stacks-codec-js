@@ -36,7 +36,12 @@ impl NeonJsSerialize for Encode<'_, TransactionPostCondition> {
                 let amount_str = cx.string(amount.to_string());
                 obj.set(cx, "amount", amount_str)?;
             }
-            TransactionPostCondition::Fungible(principal, asset_info, fungible_condition, amount) => {
+            TransactionPostCondition::Fungible(
+                principal,
+                asset_info,
+                fungible_condition,
+                amount,
+            ) => {
                 let asset_info_id = cx.number(AssetInfoID::FungibleAsset as u8);
                 obj.set(cx, "asset_info_id", asset_info_id)?;
 
@@ -53,7 +58,12 @@ impl NeonJsSerialize for Encode<'_, TransactionPostCondition> {
                 let amount_str = cx.string(amount.to_string());
                 obj.set(cx, "amount", amount_str)?;
             }
-            TransactionPostCondition::Nonfungible(principal, asset_info, asset_value, nonfungible_condition) => {
+            TransactionPostCondition::Nonfungible(
+                principal,
+                asset_info,
+                asset_value,
+                nonfungible_condition,
+            ) => {
                 let asset_info_id = cx.number(AssetInfoID::NonfungibleAsset as u8);
                 obj.set(cx, "asset_info_id", asset_info_id)?;
 

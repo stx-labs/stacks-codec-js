@@ -16,7 +16,7 @@ pub fn decode_transaction(mut cx: FunctionContext) -> JsResult<JsObject> {
     let (tx, tx_id_bytes) = arg_as_bytes(&mut cx, 0, |val_bytes| {
         let mut cursor = Cursor::new(val_bytes);
         let tx = deserialize_transaction(&mut cursor)
-            .or_else(|e| Err(format!("Failed to decode transaction: {:?}\n", &e)))?;
+            .map_err(|e| format!("Failed to decode transaction: {:?}\n", &e))?;
         let tx_id_bytes = Sha512_256::digest(val_bytes);
         Ok((tx, tx_id_bytes))
     })

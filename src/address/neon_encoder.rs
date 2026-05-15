@@ -7,7 +7,9 @@
 //! the `Encode<'_, UpstreamX>` wrapper, so `post_condition`, `stacks_tx`,
 //! and `stacks_block` can all reuse them.
 use clarity::vm::types::serialization::TypePrefix as UpstreamTypePrefix;
-use clarity::vm::types::{PrincipalData as UpstreamPrincipalData, StandardPrincipalData as UpstreamStandardPrincipalData};
+use clarity::vm::types::{
+    PrincipalData as UpstreamPrincipalData, StandardPrincipalData as UpstreamStandardPrincipalData,
+};
 use neon::prelude::*;
 use stacks_common::types::chainstate::StacksAddress as UpstreamStacksAddress;
 
