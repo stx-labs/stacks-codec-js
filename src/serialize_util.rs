@@ -23,12 +23,6 @@ impl From<std::io::Error> for DeserializeError {
     }
 }
 
-impl From<&str> for DeserializeError {
-    fn from(err: &str) -> Self {
-        err.into()
-    }
-}
-
 impl Display for DeserializeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.error)

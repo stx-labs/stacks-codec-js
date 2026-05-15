@@ -1,28 +1,29 @@
 use std::io::Cursor;
 
+use blockstack_lib::burnchains::bitcoin::address::{
+    legacy_address_type_to_version_byte, LegacyBitcoinAddress, ADDRESS_VERSION_MAINNET_MULTISIG,
+    ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_MULTISIG,
+    ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 use clarity::vm::types::PrincipalData;
 use neon::prelude::*;
 #[cfg(feature = "profiling")]
 use neon::types::buffer::TypedArray;
 use stacks_common::codec::StacksMessageCodec;
+use stacks_common::types::chainstate::StacksAddress;
+use stacks_common::util::hash::Hash160;
 
 use crate::hex::encode_hex;
 use crate::neon_util::{arg_as_bytes, arg_as_bytes_copied};
 
-use self::bitcoin_address::{
-    BitcoinAddress, ADDRESS_VERSION_MAINNET_MULTISIG, ADDRESS_VERSION_MAINNET_SINGLESIG,
-    ADDRESS_VERSION_TESTNET_MULTISIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
 use self::c32::c32_address;
 use self::c32::c32_address_decode;
-use self::stacks_address::StacksAddress;
 use self::stacks_address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
 
 pub mod b58;
-pub mod bitcoin_address;
 pub mod c32;
 pub mod neon_encoder;
 pub mod stacks_address;
@@ -47,9 +48,8 @@ fn stx_to_btc_version_byte(version: u8) -> Option<u8> {
     }
 }
 
-fn btc_addr_to_stx_addr_version(addr: &BitcoinAddress) -> Result<u8, String> {
-    let btc_version =
-        bitcoin_address::address_type_to_version_byte(&addr.addrtype, &addr.network_id);
+fn btc_addr_to_stx_addr_version(addr: &LegacyBitcoinAddress) -> Result<u8, String> {
+    let btc_version = legacy_address_type_to_version_byte(addr.addrtype, addr.network_id);
     btc_to_stx_addr_version_byte(btc_version).ok_or_else(|| {
         format!(
             "Failed to decode Bitcoin version byte to Stacks version byte: {}",
@@ -58,20 +58,18 @@ fn btc_addr_to_stx_addr_version(addr: &BitcoinAddress) -> Result<u8, String> {
     })
 }
 
-fn btc_addr_to_stx_addr(addr: &BitcoinAddress) -> Result<StacksAddress, String> {
+fn btc_addr_to_stx_addr(addr: &LegacyBitcoinAddress) -> Result<StacksAddress, String> {
     let version = btc_addr_to_stx_addr_version(addr)?;
-    Ok(StacksAddress {
-        version: version,
-        hash160_bytes: addr.hash160_bytes.clone(),
-    })
+    StacksAddress::new(version, addr.bytes.clone())
+        .map_err(|e| format!("Invalid Stacks address version {}: {}", version, e))
 }
 
 fn stx_addr_to_btc_addr(addr: &StacksAddress) -> String {
-    let btc_version = stx_to_btc_version_byte(addr.version)
+    let btc_version = stx_to_btc_version_byte(addr.version())
         // fallback to version
-        .unwrap_or(addr.version);
+        .unwrap_or(addr.version());
     let mut all_bytes = vec![btc_version];
-    all_bytes.extend(addr.hash160_bytes.iter());
+    all_bytes.extend_from_slice(addr.bytes().as_bytes());
     b58::check_encode_slice(&all_bytes)
 }
 
@@ -178,9 +176,11 @@ pub fn stacks_address_from_parts(mut cx: FunctionContext) -> JsResult<JsString> 
 }
 
 fn stacks_to_bitcoin_address_internal(input: String) -> Result<String, String> {
-    let stacks_address = StacksAddress::from_string(&input)?;
-    let bitcoin_address = stx_addr_to_btc_addr(&stacks_address);
-    Ok(bitcoin_address)
+    let (version, bytes) =
+        c32_address_decode(&input).map_err(|e| format!("Error decoding c32 address: {}", e))?;
+    let stacks_address = StacksAddress::new(version, Hash160(bytes))
+        .map_err(|e| format!("Invalid Stacks address version {}: {}", version, e))?;
+    Ok(stx_addr_to_btc_addr(&stacks_address))
 }
 
 pub fn stacks_to_bitcoin_address(mut cx: FunctionContext) -> JsResult<JsString> {
@@ -193,8 +193,8 @@ pub fn stacks_to_bitcoin_address(mut cx: FunctionContext) -> JsResult<JsString> 
 
 pub fn bitcoin_to_stacks_address(mut cx: FunctionContext) -> JsResult<JsString> {
     let bitcoin_address_arg = cx.argument::<JsString>(0)?.value(&mut cx);
-    let bitcoin_address = bitcoin_address::from_b58(&bitcoin_address_arg)
-        .or_else(|e| cx.throw_error(format!("Error parsing Bitcoin address: {}", e)))?;
+    let bitcoin_address = LegacyBitcoinAddress::from_b58(&bitcoin_address_arg)
+        .or_else(|e| cx.throw_error(format!("Error parsing Bitcoin address: {:?}", e)))?;
 
     let stacks_addr = btc_addr_to_stx_addr(&bitcoin_address).or_else(|e| {
         cx.throw_error(format!(
@@ -203,7 +203,7 @@ pub fn bitcoin_to_stacks_address(mut cx: FunctionContext) -> JsResult<JsString> 
         ))
     })?;
 
-    let stacks_addr = c32_address(stacks_addr.version, &stacks_addr.hash160_bytes)
+    let stacks_addr = c32_address(stacks_addr.version(), stacks_addr.bytes().as_bytes())
         .or_else(|e| cx.throw_error(format!("Error converting to C32 address: {}", e)))?;
 
     Ok(cx.string(stacks_addr))
