@@ -1,41 +1,39 @@
-use byteorder::ReadBytesExt;
+//! Clarity value deserialization.
+//!
+//! The wire-format parser for Clarity values now lives upstream in
+//! `clarity::vm::types::Value::deserialize_read`. This module is a thin façade
+//! that runs the upstream decoder and adapts its value tree into the local
+//! [`ClarityValue`] type so the rest of this crate (and the Neon encoder in
+//! particular) can keep their existing shapes and import paths.
+//!
+//! The smaller helpers (`ClarityName::deserialize`, `ContractName::deserialize`,
+//! `StandardPrincipalData::deserialize`) are kept here because the not-yet-
+//! migrated modules (`stacks_tx`, `post_condition`, `address`) still call them
+//! directly to parse standalone wire-format components. They will go away once
+//! those modules are migrated to upstream as well.
 
-use super::types::*;
+use byteorder::ReadBytesExt;
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read};
 
+use clarity::vm::types::{
+    BuffData, CharType, ListData, OptionalData, PrincipalData, ResponseData, SequenceData,
+    TupleData, Value as UpstreamValue,
+};
+use stacks_common::codec::StacksMessageCodec;
+
+use super::types::*;
 use crate::serialize_util::DeserializeError;
 
-macro_rules! define_u8_enum {
-    ($Name:ident { $($Variant:ident = $Val:literal),+ }) =>
-    {
-        #[derive(Debug, Clone, PartialEq)]
-        #[repr(u8)]
-        pub enum $Name {
-            $($Variant = $Val),*,
-        }
-        impl $Name {
-            pub fn to_u8(&self) -> u8 {
-                match self {
-                    $(
-                        $Name::$Variant => $Val,
-                    )*
-                }
-            }
-
-            pub fn from_u8(v: u8) -> Option<Self> {
-                match v {
-                    $(
-                        v if v == $Name::$Variant as u8 => Some($Name::$Variant),
-                    )*
-                    _ => None
-                }
-            }
-        }
-    }
-}
-
-define_u8_enum!(TypePrefix {
+/// Wire-format type prefix bytes for Clarity values.
+///
+/// Numerically identical to upstream's `clarity_types::types::serialization::TypePrefix`,
+/// but redefined here because: (a) other modules in this crate import it via
+/// `crate::clarity_value::deserialize::TypePrefix`, and (b) we don't want to leak
+/// the upstream import path into call sites that don't otherwise touch upstream.
+#[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
+pub enum TypePrefix {
     Int = 0,
     UInt = 1,
     Buffer = 2,
@@ -50,8 +48,35 @@ define_u8_enum!(TypePrefix {
     List = 11,
     Tuple = 12,
     StringASCII = 13,
-    StringUTF8 = 14
-});
+    StringUTF8 = 14,
+}
+
+impl TypePrefix {
+    pub fn to_u8(&self) -> u8 {
+        self.clone() as u8
+    }
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(Self::Int),
+            1 => Some(Self::UInt),
+            2 => Some(Self::Buffer),
+            3 => Some(Self::BoolTrue),
+            4 => Some(Self::BoolFalse),
+            5 => Some(Self::PrincipalStandard),
+            6 => Some(Self::PrincipalContract),
+            7 => Some(Self::ResponseOk),
+            8 => Some(Self::ResponseErr),
+            9 => Some(Self::OptionalNone),
+            10 => Some(Self::OptionalSome),
+            11 => Some(Self::List),
+            12 => Some(Self::Tuple),
+            13 => Some(Self::StringASCII),
+            14 => Some(Self::StringUTF8),
+            _ => None,
+        }
+    }
+}
 
 impl ContractName {
     pub fn deserialize(fd: &mut Cursor<&[u8]>) -> Result<Self, DeserializeError> {
@@ -111,135 +136,109 @@ impl StandardPrincipalData {
 }
 
 impl ClarityValue {
+    /// Deserialize a Clarity value from the wire format.
+    ///
+    /// Internally delegates to upstream's canonical implementation
+    /// ([`clarity::vm::types::Value::deserialize_read`]) and then converts the
+    /// resulting tree into the local [`ClarityValue`] type so the existing Neon
+    /// encoder doesn't need to change.
+    ///
+    /// When `with_bytes` is true, every node in the resulting tree carries its
+    /// own serialized byte slice. The top-level slice is taken directly from the
+    /// input cursor; nested-value slices are produced by re-serializing each
+    /// node via upstream's canonical encoder. Clarity wire encoding is
+    /// deterministic, so the round-tripped bytes match the original input.
     pub fn deserialize(
         r: &mut Cursor<&[u8]>,
         with_bytes: bool,
     ) -> Result<ClarityValue, DeserializeError> {
-        Self::inner_deserialize_read(r, 0, with_bytes)
-    }
-
-    fn inner_deserialize_read(
-        r: &mut Cursor<&[u8]>,
-        depth: u8,
-        with_bytes: bool,
-    ) -> Result<ClarityValue, DeserializeError> {
-        use super::types::Value::*;
-
-        if depth >= 16 {
-            return Err(format!("TypeSignatureTooDeep: {}", depth).into());
-        }
-
         let cursor_start = r.position() as usize;
+        let upstream_value = UpstreamValue::deserialize_read(r, None, false)
+            .map_err(|e| DeserializeError::from(format!("Failed to decode Clarity value: {}", e)))?;
+        let cursor_end = r.position() as usize;
 
-        let mut header = [0];
-        r.read_exact(&mut header)?;
-
-        let prefix = TypePrefix::from_u8(header[0]).ok_or_else(|| "Bad type prefix")?;
-
-        let clarity_value = match prefix {
-            TypePrefix::Int => {
-                let mut int_buffer = [0; 16];
-                r.read_exact(&mut int_buffer)?;
-                Int(i128::from_be_bytes(int_buffer))
-            }
-            TypePrefix::UInt => {
-                let mut int_buffer = [0; 16];
-                r.read_exact(&mut int_buffer)?;
-                UInt(u128::from_be_bytes(int_buffer))
-            }
-            TypePrefix::Buffer => {
-                let mut buffer_len = [0; 4];
-                r.read_exact(&mut buffer_len)?;
-                let buffer_len = u32::from_be_bytes(buffer_len);
-                if buffer_len > MAX_VALUE_SIZE {
-                    return Err("Illegal buffer type size".into());
-                }
-                let mut data = vec![0; buffer_len as usize];
-                r.read_exact(&mut data[..])?;
-                Value::Buffer(data)
-            }
-            TypePrefix::BoolTrue => Bool(true),
-            TypePrefix::BoolFalse => Bool(false),
-            TypePrefix::PrincipalStandard => {
-                let principal = StandardPrincipalData::deserialize(r)?;
-                Value::PrincipalStandard(principal)
-            }
-            TypePrefix::PrincipalContract => {
-                let issuer = StandardPrincipalData::deserialize(r)?;
-                let name = ClarityName::deserialize(r)?;
-                Value::PrincipalContract(QualifiedContractIdentifier { issuer, name })
-            }
-            TypePrefix::ResponseOk => {
-                let value = Self::inner_deserialize_read(r, depth + 1, with_bytes)?;
-                Value::ResponseOk(Box::new(value))
-            }
-            TypePrefix::ResponseErr => {
-                let value = Self::inner_deserialize_read(r, depth + 1, with_bytes)?;
-                Value::ResponseErr(Box::new(value))
-            }
-            TypePrefix::OptionalNone => Value::OptionalNone,
-            TypePrefix::OptionalSome => {
-                let value = Self::inner_deserialize_read(r, depth + 1, with_bytes)?;
-                Value::OptionalSome(Box::new(value))
-            }
-            TypePrefix::List => {
-                let mut len = [0; 4];
-                r.read_exact(&mut len)?;
-                let len = u32::from_be_bytes(len);
-                if len > MAX_VALUE_SIZE {
-                    return Err("Illegal list type size".into());
-                }
-                let mut items = Vec::with_capacity(len as usize);
-                for _i in 0..len {
-                    let value = Self::inner_deserialize_read(r, depth + 1, with_bytes)?;
-                    items.push(value);
-                }
-                Value::List(items)
-            }
-            TypePrefix::Tuple => {
-                let mut len = [0; 4];
-                r.read_exact(&mut len)?;
-                let len = u32::from_be_bytes(len);
-                if len > MAX_VALUE_SIZE {
-                    return Err("Illegal tuple type size".into());
-                }
-                let mut data = BTreeMap::new();
-                for _i in 0..len {
-                    let key = ClarityName::deserialize(r)?;
-                    let value = Self::inner_deserialize_read(r, depth + 1, with_bytes)?;
-                    data.insert(key, value);
-                }
-                Value::Tuple(data)
-            }
-            TypePrefix::StringASCII => {
-                let mut buffer_len = [0; 4];
-                r.read_exact(&mut buffer_len)?;
-                let buffer_len = u32::from_be_bytes(buffer_len);
-                if buffer_len > MAX_VALUE_SIZE {
-                    return Err("Illegal string-ascii type size".into());
-                }
-                let mut data = vec![0; buffer_len as usize];
-                r.read_exact(&mut data[..])?;
-                Value::StringASCII(data)
-            }
-            TypePrefix::StringUTF8 => {
-                let mut total_len = [0; 4];
-                r.read_exact(&mut total_len)?;
-                let total_len = u32::from_be_bytes(total_len);
-                if total_len > MAX_VALUE_SIZE {
-                    return Err("Illegal string-utf8 type size".into());
-                }
-                let mut data: Vec<u8> = vec![0; total_len as usize];
-                r.read_exact(&mut data[..])?;
-                Value::string_utf8(data)
-            }
-        };
+        let value = convert_value(&upstream_value, with_bytes);
 
         if with_bytes {
-            let bytes = &r.get_ref()[cursor_start..r.position() as usize];
-            Ok(ClarityValue::new_with_bytes(bytes, clarity_value))
+            let bytes = &r.get_ref()[cursor_start..cursor_end];
+            Ok(ClarityValue::new_with_bytes(bytes, value))
         } else {
-            Ok(ClarityValue::new(clarity_value))
+            Ok(ClarityValue::new(value))
         }
+    }
+}
+
+fn convert_value(upstream: &UpstreamValue, with_bytes: bool) -> Value {
+    match upstream {
+        UpstreamValue::Int(v) => Value::Int(*v),
+        UpstreamValue::UInt(v) => Value::UInt(*v),
+        UpstreamValue::Bool(b) => Value::Bool(*b),
+        UpstreamValue::Sequence(seq) => match seq {
+            SequenceData::Buffer(BuffData { data }) => Value::Buffer(data.clone()),
+            SequenceData::List(ListData { data, .. }) => {
+                let items = data
+                    .iter()
+                    .map(|v| convert_clarity_value(v, with_bytes))
+                    .collect();
+                Value::List(items)
+            }
+            SequenceData::String(CharType::ASCII(ascii)) => Value::StringASCII(ascii.data.clone()),
+            SequenceData::String(CharType::UTF8(utf8)) => Value::StringUTF8(utf8.data.clone()),
+        },
+        UpstreamValue::Principal(PrincipalData::Standard(principal)) => {
+            Value::PrincipalStandard(StandardPrincipalData(principal.version(), principal.1))
+        }
+        UpstreamValue::Principal(PrincipalData::Contract(qci)) => {
+            Value::PrincipalContract(QualifiedContractIdentifier {
+                issuer: StandardPrincipalData(qci.issuer.version(), qci.issuer.1),
+                name: ClarityName(qci.name.to_string()),
+            })
+        }
+        UpstreamValue::Tuple(TupleData { data_map, .. }) => {
+            let mut data = BTreeMap::new();
+            for (key, value) in data_map.iter() {
+                data.insert(
+                    ClarityName(key.to_string()),
+                    convert_clarity_value(value, with_bytes),
+                );
+            }
+            Value::Tuple(data)
+        }
+        UpstreamValue::Optional(OptionalData {
+            data: Some(boxed), ..
+        }) => Value::OptionalSome(Box::new(convert_clarity_value(boxed, with_bytes))),
+        UpstreamValue::Optional(OptionalData { data: None, .. }) => Value::OptionalNone,
+        UpstreamValue::Response(ResponseData {
+            committed: true,
+            data,
+            ..
+        }) => Value::ResponseOk(Box::new(convert_clarity_value(data, with_bytes))),
+        UpstreamValue::Response(ResponseData {
+            committed: false,
+            data,
+            ..
+        }) => Value::ResponseErr(Box::new(convert_clarity_value(data, with_bytes))),
+        UpstreamValue::CallableContract(_) => {
+            // Runtime-only variant constructed when invoking traits; it has no
+            // wire-format representation, so deserialize_read above can never
+            // produce one from the byte stream.
+            unreachable!("CallableContract is not part of the consensus serialization")
+        }
+    }
+}
+
+fn convert_clarity_value(upstream: &UpstreamValue, with_bytes: bool) -> ClarityValue {
+    let value = convert_value(upstream, with_bytes);
+    let serialized_bytes = if with_bytes {
+        // Use the StacksMessageCodec trait method (returns Vec<u8>) rather than
+        // Value's identically-named inherent method (returns Result<Vec<u8>, ..>).
+        // Serialization to an in-memory buffer cannot actually fail.
+        Some(<UpstreamValue as StacksMessageCodec>::serialize_to_vec(upstream))
+    } else {
+        None
+    };
+    ClarityValue {
+        serialized_bytes,
+        value,
     }
 }

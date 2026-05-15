@@ -71,34 +71,50 @@ After:
 Net: ~1000 LOC of hand-copied algorithm code replaced by ~100 LOC of
 delegation. All 42 unit tests still pass.
 
+## Reference module: `src/clarity_value/`
+
+Done. The recursive `ClarityValue::deserialize` was replaced with a façade:
+
+- `src/clarity_value/deserialize.rs`:
+  - `ClarityValue::deserialize` now calls
+    `clarity::vm::types::Value::deserialize_read(r, None, false)` and walks
+    the resulting upstream tree into the local `Value` / `ClarityValue` types
+    via `convert_value` / `convert_clarity_value`.
+  - `TypePrefix` is kept locally because `address`, `post_condition` and
+    `stacks_tx` still import it via this path (their own migrations will
+    drop these imports). The values match upstream's
+    `clarity_types::types::serialization::TypePrefix` exactly.
+  - The smaller helpers (`ClarityName::deserialize`,
+    `ContractName::deserialize`, `StandardPrincipalData::deserialize`) are
+    kept for the same reason; they will be removed when their last call
+    sites in `stacks_tx`, `post_condition`, and `address` are migrated.
+- `src/clarity_value/types.rs` — unchanged. The local `ClarityValue` /
+  `Value` / `StandardPrincipalData` / `QualifiedContractIdentifier` types
+  remain as façades over their upstream equivalents, with the `repr_string`
+  and `type_signature` formatters preserved bit-for-bit so the JS-facing
+  output is byte-identical.
+- `src/clarity_value/neon_encoder.rs` — unchanged; still operates on the
+  local `Value` enum.
+- `src/clarity_value/mod.rs` — unchanged. The four neon entry points
+  (`decode_clarity_value`, `decode_clarity_value_type_name`,
+  `decode_clarity_value_to_repr`, `decode_clarity_value_array`) now exercise
+  upstream's parser without any API changes.
+
+**Bytes-capture nuance**: The original deserializer captured each nested
+value's raw byte slice from the input cursor. We preserve this by
+re-serializing each nested upstream value via
+`<Value as StacksMessageCodec>::serialize_to_vec` (the trait method, which
+returns `Vec<u8>` — the inherent `Value::serialize_to_vec` shadows it with a
+`Result`-returning version, so it must be disambiguated). Clarity wire
+encoding is canonical and deterministic, so the round-tripped bytes match
+the original input. The top-level value's bytes are still taken directly
+from the cursor positions before/after `deserialize_read` to skip one
+serialization round-trip on the hot path.
+
+The `clarity-value-to-json`, `clarity-value-to-repr`, and
+`clarity-value-list-decode` Jest suites pass unchanged.
+
 ## Remaining modules
-
-### `src/clarity_value/` — ~650 LOC
-
-**Upstream targets**:
-
-- `clarity::vm::types::Value` — the canonical Clarity value enum.
-- `clarity::vm::types::PrincipalData`, `StandardPrincipalData`,
-  `QualifiedContractIdentifier`, `ContractName`, `ClarityName`.
-- `clarity::vm::types::Value::consensus_deserialize` and `serialize_to_vec`.
-
-**Hazards**:
-
-- The local `Value` enum is ordered differently from upstream and is missing
-  the `Sequence` wrapper variant that upstream uses for buffers, strings,
-  lists. Local `Value::Buffer(Vec<u8>)` becomes upstream
-  `Value::Sequence(SequenceData::Buffer(BuffData { data: Vec<u8> }))`. The
-  `neon_encoder` mapping needs to flatten this back out.
-- `repr_string` and `type_signature` differ in a few corners (empty list
-  printing, optional-none repr). Either keep the local formatters or
-  swap to `Value::to_string` and run the test suite to catch deltas.
-- The local `ClarityValue` wrapper carries `serialized_bytes: Option<Vec<u8>>`
-  alongside `value: Value`. Upstream has no equivalent — capture the bytes at
-  parse time by recording the cursor offset.
-
-**Suggested approach**: Build a `convert_from_upstream(v: &clarity::vm::types::Value)
--> ClarityValue` function. Decode using upstream, convert into the local
-`Value`, leave `neon_encoder.rs` untouched.
 
 ### `src/post_condition/` — ~480 LOC
 
@@ -198,7 +214,7 @@ upstream, wrap, leave encoder untouched.
    - Call the unchanged `neon_encoder`.
 5. Delete the now-orphan code from the local `deserialize.rs` (keep only the
    `struct` / `enum` declarations).
-6. Run `cargo test --lib` and `npm run build:debug && npm test` to validate.
+6. Run `cargo test --lib` and `npm run build:dev && npm test` to validate.
 
 When all five modules are done, a second pass can delete the local
 `struct`/`enum` types entirely and rewrite the `neon_encoder.rs` files
