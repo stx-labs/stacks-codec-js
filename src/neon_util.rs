@@ -11,6 +11,23 @@ pub trait NeonJsSerialize<ExtraCtx = (), TResult = ()> {
     ) -> NeonResult<TResult>;
 }
 
+/// Zero-cost newtype wrapper used to attach `NeonJsSerialize` (and other local
+/// traits) to upstream types from `clarity` / `blockstack_lib` / `stacks_common`.
+///
+/// The Rust orphan rule forbids `impl LocalTrait for ExternalType`, so every
+/// upstream-typed encoder in this crate is implemented as
+/// `impl NeonJsSerialize for Encode<'_, ExternalType>`. The wrapper carries
+/// only a reference, so it adds no runtime cost beyond the lifetime parameter.
+#[repr(transparent)]
+pub struct Encode<'a, T: ?Sized>(pub &'a T);
+
+impl<'a, T: ?Sized> Encode<'a, T> {
+    #[inline]
+    pub fn new(value: &'a T) -> Self {
+        Encode(value)
+    }
+}
+
 /*
 pub fn eval<'a, 'b, C: Context<'a>>(
     cx: &mut C,

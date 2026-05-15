@@ -25,6 +25,7 @@ use self::stacks_address::{
 pub mod b58;
 pub mod bitcoin_address;
 pub mod c32;
+pub mod neon_encoder;
 pub mod stacks_address;
 
 fn btc_to_stx_addr_version_byte(version: u8) -> Option<u8> {

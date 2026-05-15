@@ -1,10 +1,11 @@
-use neon::prelude::*;
 use std::{convert::TryInto, io::Cursor};
 
-use crate::hex::encode_hex;
-use crate::neon_util::arg_as_bytes_copied;
+use neon::prelude::*;
 
-use self::deserialize::TransactionPostCondition;
+use crate::hex::encode_hex;
+use crate::neon_util::{arg_as_bytes_copied, Encode, NeonJsSerialize};
+
+use self::deserialize::deserialize_post_condition;
 
 pub mod deserialize;
 pub mod neon_encoder;
@@ -13,12 +14,12 @@ pub fn decode_tx_post_conditions(mut cx: FunctionContext) -> JsResult<JsObject> 
     let input_bytes = arg_as_bytes_copied(&mut cx, 0)?;
     let resp_obj = cx.empty_object();
 
-    // first byte is post condition mode
+    // First byte is post-condition mode.
     let post_condition_mode = cx.number(input_bytes[0]);
     resp_obj.set(&mut cx, "post_condition_mode", post_condition_mode)?;
 
     let array_result = if input_bytes.len() > 4 {
-        // next 4 bytes are array length
+        // Next 4 bytes are array length.
         let result_length = u32::from_be_bytes(input_bytes[1..5].try_into().or_else(|e| {
             cx.throw_error(format!(
                 "Error reading post condition bytes {}, {}",
@@ -27,20 +28,18 @@ pub fn decode_tx_post_conditions(mut cx: FunctionContext) -> JsResult<JsObject> 
             ))
         })?);
         let array_result = JsArray::new(&mut cx, result_length as usize);
-        // next bytes are serialized post condition items
         let post_condition_bytes = &input_bytes[5..];
         let post_condition_bytes_len = post_condition_bytes.len() as u64;
         let mut cursor = Cursor::new(post_condition_bytes);
         let mut i: u32 = 0;
         while cursor.position() < post_condition_bytes_len {
-            let post_condition =
-                TransactionPostCondition::deserialize(&mut cursor).or_else(|e| {
-                    cx.throw_error(format!("Error deserializing post condition: {}", e.error))
-                })?;
+            let post_condition = deserialize_post_condition(&mut cursor).or_else(|e| {
+                cx.throw_error(format!("Error deserializing post condition: {}", e.error))
+            })?;
             let value_obj = cx.empty_object();
-            post_condition.neon_js_serialize(&mut cx, &value_obj)?;
+            Encode(&post_condition).neon_js_serialize(&mut cx, &value_obj, &())?;
             array_result.set(&mut cx, i, value_obj)?;
-            i = i + 1;
+            i += 1;
         }
         array_result
     } else {
@@ -70,7 +69,7 @@ mod tests {
             let post_condition_bytes_len = post_condition_bytes.len() as u64;
             let mut cursor = Cursor::new(post_condition_bytes);
             while cursor.position() < post_condition_bytes_len {
-                TransactionPostCondition::deserialize(&mut cursor).unwrap();
+                deserialize_post_condition(&mut cursor).unwrap();
             }
         }
     }

@@ -20,11 +20,56 @@ The migration is incremental: each module under `src/` was moved from
 This file documents the pattern, hazards, and design decisions that came up
 along the way.
 
-**Status**: Phase one complete. Every consensus-decoding module that was in
-scope (`address`, `clarity_value`, `post_condition`, `stacks_tx`,
-`stacks_block`) is now a thin façade. The only intentionally-unmigrated
-module is `pox_events`, which is bespoke to this crate and has no upstream
-counterpart.
+**Status**
+
+- **Phase 1 (complete):** Every consensus-decoding path delegates to upstream
+  `StacksMessageCodec` / Clarity parsers first; local types and `convert_*`
+  functions bridged the gap to the existing Neon encoders.
+- **Phase 2 (in progress):** Shadow types are being removed module-by-module.
+  The pattern is **Option A — zero-cost newtype wrappers**:
+  `neon_util::Encode<'a, T>` (`#[repr(transparent)]`, holds `&'a T`) so we can
+  implement `NeonJsSerialize` for upstream types without violating the orphan
+  rule. JS-facing object shapes and TypeScript entry points are unchanged.
+
+**Phase 2 completed in this repo (snapshot for handoff)**
+
+| Area | What changed |
+|------|----------------|
+| `src/neon_util.rs` | `Encode<'a, T>` plus `Encode::new`; encoders use `Encode(&value).neon_js_serialize(...)`. |
+| `src/clarity_value/` | Neon entry points parse `clarity::vm::types::Value` directly (`deserialize_read` / codec). `neon_encoder.rs` walks the upstream tree; `repr_string` / `type_signature_string` match historical JS output. Local `types.rs` / `deserialize.rs` remain **only** for legacy helpers still referenced from `address` (see below). |
+| `src/post_condition/` | `deserialize.rs` re-exports upstream post-condition types; `deserialize_post_condition` wraps `consensus_deserialize`. `neon_encoder.rs` implements `NeonJsSerialize` for `Encode<'_, …>`. |
+| `src/stacks_tx/` | `deserialize.rs` is a thin re-export + `deserialize_transaction`. `neon_encoder.rs` rewritten for upstream payloads, auth, multisigs, coinbase fan-out, microblocks, post-condition buffer re-serialization. `mod.rs` hashes txid and calls `Encode(&tx)`. **Note:** `clarity_version` on versioned smart-contract payloads uses an explicit map from `clarity::vm::ClarityVersion` to the **1-based wire byte** (`Clarity2` → `2`), not `as u8` on the enum. |
+| `src/address/neon_encoder.rs` | Shared `NeonJsSerialize` for upstream `StacksAddress` / principal types (reduces duplication with tx/post-condition encoders). |
+| `src/stacks_block/` | Nakamoto path: `deserialize_nakamoto_block` builds upstream `NakamotoBlock` (header via codec, tx vector read loosely — same rationale as Phase 1: no duplicate-txid / zero-tx / merkle checks from upstream block parsers). Stacks 2.x: **local shadow** `StacksBlockHeader` still used so **any 80-byte VRF blob** is accepted (upstream validates curve points). `neon_encoder.rs`: `Encode` wrappers; `BitVec<4000>` exposes wire-identical `data` hex and an MSB-first `bits` array (historical JS behavior; differs from upstream `BitVec::get` LSB order). |
+| `src/pox_events/` | **Migrated:** `decode_pox_synthetic_event` walks `clarity::vm::types::Value`; `decode_pox_event` deserializes with `<Value as StacksMessageCodec>::consensus_deserialize`. PoX logic is still bespoke; only the Clarity representation is upstream. |
+
+**Tests:** `cargo test --lib` and `npm test` (Jest) were green at last check (41 + 41 tests respectively). `stacks_tx` post-condition unit tests expect `TransactionPostConditionMode::Originator` where the wire byte is `0x03`, matching `stackslib`.
+
+**Remaining Phase 2 / cleanup (for you)**
+
+1. **`src/address/mod.rs` — `decode_clarity_value_to_principal_inner`**  
+   Still uses local `clarity_value::deserialize::TypePrefix` and
+   `clarity_value::types::{ClarityName, StandardPrincipalData}` for the
+   buffer / standard / contract principal paths. Replace with upstream
+   `PrincipalData` or full `Value` deserialization once the principal-only
+   behavior is confirmed equivalent for all supported inputs.
+
+2. **`src/clarity_value/deserialize.rs` + `types.rs`**  
+   Delete `TypePrefix`, `convert_clarity_value`, and local `Value` /
+   `ClarityValue` trees once `address` no longer imports them. Update the
+   module doc in `clarity_value/mod.rs` (it still mentions `pox_events` as
+   the reason for keeping `types`; that is stale after the PoX migration).
+
+3. **Docs pass**  
+   Refresh the “Reference module” sections below so they describe **Phase 2**
+   reality, or mark them explicitly as **Phase 1 history** — they still read
+   as “façade + convert_*”, which is no longer true for `post_condition`,
+   `stacks_tx`, `stacks_block` (Nakamoto), or `pox_events`.
+
+4. **Optional**  
+   Run through `grep` for `convert_`, shadow structs, and any remaining
+   hand-rolled consensus parsing outside the documented exceptions (Stacks
+   2.x header VRF, loose block body reads).
 
 ## The pattern
 
@@ -50,8 +95,14 @@ upstream value, or by capturing cursor offsets around the relevant
 
 A future, separate refactor pass can then delete the local type definitions
 entirely and rewrite `neon_encoder.rs` to operate on upstream types directly.
-The current "façade" phase is intentionally low-risk so that this can land
-behind small, reviewable diffs.
+**Phase 2 (see the status table at the top) is that pass, in progress:** the
+`Encode<'_, T>` wrapper replaces maintaining parallel local `struct` trees for
+modules that are done; the paragraphs below predate that pass.
+
+> **Documentation note:** The sections titled **Reference module: …** describe
+> **Phase 1** in detail (façades, `convert_*`, local shadow types). They remain
+> useful for hazards and rationale. For **what the code does now**, start with
+> the **Phase 2 completed in this repo (snapshot for handoff)** table above.
 
 ## Reference module: `src/address/`
 
@@ -76,7 +127,8 @@ After:
   `stacks_to_bitcoin_address`, etc. neon functions kept their behavior).
 
 Net: ~1000 LOC of hand-copied algorithm code replaced by ~100 LOC of
-delegation. All 42 unit tests still pass.
+delegation. Phase 1 kept the full Rust `lib` test suite green; counts have
+since moved with new tests (see snapshot table at the top).
 
 ## Reference module: `src/clarity_value/`
 
@@ -253,79 +305,39 @@ decode for every payload variant in the wire format.
 
 ## Reference module: `src/stacks_block/`
 
-Done. Final module in the migration. Both Stacks 2.x (`StacksBlock`) and
-Nakamoto (`NakamotoBlock`) decoders now build on upstream's primitives:
+*(Phase 1 write-up; **Phase 2** replaced the Nakamoto local structs — see the
+snapshot table at the top.)*
 
-- `src/stacks_block/deserialize.rs`:
-  - `NakamotoBlockHeader::deserialize` calls upstream's
-    `<NakamotoBlockHeader as StacksMessageCodec>::consensus_deserialize` and
-    runs `convert_nakamoto_header` to lower the result. All fields in the
-    Nakamoto header are fixed-width integers, opaque byte buffers, a
-    length-prefixed signature vector, or a `BitVec<4000>` — none of which
-    upstream rejects on content.
-  - `StacksBlockHeader::deserialize` does *not* delegate to upstream because
-    upstream's parser validates the VRF proof bytes form a valid curve
-    point, and the JS test suite (and presumably user fixtures) rely on the
-    historical permissive behavior of accepting any 80-byte buffer there.
-    The header is read field-by-field instead — every field is a fixed-size
-    byte buffer or fixed-width integer, so there's no canonical-decoder
-    dependency to lose.
-  - `NakamotoBlock::deserialize` and `StacksBlock::deserialize` deserialize
-    the header (above), then read the length-prefixed transaction vector
-    directly: a 4-byte BE count followed by `count` calls into upstream's
-    `StacksTransaction::consensus_deserialize` + the now-shared
-    `crate::stacks_tx::deserialize::convert_transaction` lowering. We
-    bypass upstream's `StacksBlock::consensus_deserialize` /
-    `NakamotoBlock::consensus_deserialize` because they reject blocks that
-    don't satisfy higher-level invariants (no zero-tx blocks,
-    tx-merkle-root must match the header, no duplicate txids); changing
-    those would be a user-visible behavior change.
-  - The local `BitVec` struct is kept verbatim — including its MSB-first
-    `get()` ordering, which is *different* from upstream's LSB-first
-    `BitVec::get()`. The JS-facing `bits` array has been shipping the
-    MSB-first convention since the first release, so we preserve it.
-    `convert_bitvec` lowers upstream's `BitVec<MAX_SIZE>` by serializing it
-    via `StacksMessageCodec::serialize_to_vec` and stripping the 6-byte
-    `(u16 len, u32 data_len)` header — the rest is the byte buffer we want,
-    byte-identical to what was on the wire.
-  - Local `block_hash()` and `block_id()` methods are kept verbatim.
-    They produce identical output to upstream's `block_hash()` /
-    `block_id()` for every non-genesis block (the only difference is that
-    upstream's `StacksBlockHeader::block_hash` short-circuits to
-    `FIRST_STACKS_BLOCK_HASH` when `total_work.work == 0`; preserving the
-    local unconditional hashing form keeps shipped behavior intact).
-- `src/stacks_block/neon_encoder.rs` — unchanged.
-- `src/stacks_block/mod.rs` — unchanged. The two public Neon entry points
-  `decode_nakamoto_block` and `decode_stacks_block` keep their TypeScript
-  shapes exactly.
+Still accurate today:
 
-To enable reuse, `crate::stacks_tx::deserialize::convert_transaction` was
-promoted from private to `pub(crate)`.
+- **Stacks 2.x header:** read field-by-field (not upstream
+  `StacksBlockHeader::consensus_deserialize`) so any **80-byte VRF blob** is
+  accepted; local `block_hash()` hashing remains unconditional (no genesis
+  short-circuit like upstream).
+- **Block body:** length-prefixed tx vector parsed with upstream
+  `StacksTransaction::consensus_deserialize` only — **not** upstream’s full
+  `StacksBlock` / `NakamotoBlock` parser (avoids zero-tx / merkle / duplicate
+  txid rules that this crate never enforced).
+- **Phase 2:** Nakamoto path returns upstream `NakamotoBlock` /
+  `NakamotoBlockHeader`; txs are upstream `Vec<StacksTransaction>` (no
+  `convert_transaction`). Neon uses `Encode<'_, _>`; upstream `BitVec<4000>`
+  is encoded with wire-true `data` hex and an **MSB-first** `bits` array.
 
-All 42 Rust unit tests and all 41 Jest suites pass — including the
-end-to-end `nakamoto-block` test that decodes a real on-chain Nakamoto
-block and asserts its `block_hash` / `index_block_hash` against known
-mainnet values.
-
+At last doc update, `cargo test --lib` and `npm test` were green, including
+`nakamoto-block` against known mainnet hashes.
 ## Future cleanup pass
 
-Phase one (this migration) deliberately preserved the local `struct`/`enum`
-types so the Neon encoder modules wouldn't need to change. Now that every
-consensus-decoding entry point goes through upstream first, a future
-self-contained pass can:
+Phase 2 is partially complete: `post_condition`, `stacks_tx`, `stacks_block`
+(Nakamoto path), `pox_events`, and most of `clarity_value` Neon paths already
+emit from upstream types via `Encode<'_, T>`. Remaining work matches the
+**Remaining Phase 2 / cleanup** checklist at the top — principally
+`address::decode_clarity_value_to_principal_inner`, deleting
+`clarity_value::deserialize` / `types` leftovers once nothing imports them,
+and reconciling this document’s long-form Phase 1 sections with reality.
 
-1. Rewrite each `src/*/neon_encoder.rs` to emit JS objects directly from the
-   upstream types (e.g. `clarity::vm::types::Value`,
-   `blockstack_lib::chainstate::stacks::TransactionPostCondition`,
-   `blockstack_lib::chainstate::stacks::StacksTransaction`,
-   `blockstack_lib::chainstate::nakamoto::NakamotoBlock`, etc.).
-2. Delete the local `struct`/`enum` definitions and the corresponding
-   `convert_*` functions from each `src/*/deserialize.rs`.
-3. Inline the public `decode_*` entry points so they decode straight into
-   upstream and emit JS without an intermediate hop.
-
-This would cut another ~1500 LOC of "shadow types" but is purely a code-size
-/ maintainability win — runtime behavior is already identical.
+After that, a final pass of `grep` for `convert_` and unused shadow structs
+should come up clean except for the **intentional** local types (Stacks 2.x
+block header for permissive VRF, loose block body readers).
 
 ## CI considerations
 

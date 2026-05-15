@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
-use crate::address::c32::c32_address;
-use crate::clarity_value::types::{ClarityName, ClarityValue, Value};
+use clarity::vm::types::{
+    CharType, PrincipalData, SequenceData, Value as UpstreamValue,
+};
+use clarity::vm::ClarityName;
+
 use crate::hex::encode_hex;
 
 use super::btc_address::pox_address_to_btc_address;
@@ -11,28 +14,28 @@ use super::types::*;
 /// Returns `Ok(None)` if the value is a `ResponseErr` (non-event).
 /// Returns `Err` if the structure is unexpected.
 pub fn decode_pox_synthetic_event(
-    clarity_value: &ClarityValue,
+    clarity_value: &UpstreamValue,
     network: StacksNetwork,
 ) -> Result<Option<PoxSyntheticEvent>, String> {
-    // 1. Root must be ResponseOk; ResponseErr means no event.
-    let inner = match &clarity_value.value {
-        Value::ResponseOk(inner) => inner,
-        Value::ResponseErr(_) => return Ok(None),
+    // 1. Root must be Response(committed=true); ResponseErr means no event.
+    let inner = match clarity_value {
+        UpstreamValue::Response(resp) if resp.committed => &resp.data,
+        UpstreamValue::Response(resp) if !resp.committed => return Ok(None),
         other => {
             return Err(format!(
-                "Unexpected PoX synthetic event Clarity type, expected ResponseOk, got {:?}",
-                other.type_prefix()
+                "Unexpected PoX synthetic event Clarity type, expected ResponseOk, got {}",
+                short_type_name(other)
             ))
         }
     };
 
     // 2. Inner must be a Tuple
-    let op_data = match &inner.value {
-        Value::Tuple(map) => map,
+    let op_data = match inner.as_ref() {
+        UpstreamValue::Tuple(t) => &t.data_map,
         other => {
             return Err(format!(
-                "Unexpected PoX synthetic event Clarity type, expected Tuple, got {:?}",
-                other.type_prefix()
+                "Unexpected PoX synthetic event Clarity type, expected Tuple, got {}",
+                short_type_name(other)
             ))
         }
     };
@@ -45,14 +48,15 @@ pub fn decode_pox_synthetic_event(
         extract_uint(get_tuple_field(op_data, "burnchain-unlock-height")?)?;
 
     // 4. Extract event name
-    let name_str = match &get_tuple_field(op_data, "name")?.value {
-        Value::StringASCII(bytes) => {
-            String::from_utf8(bytes.clone()).map_err(|e| format!("Invalid event name: {}", e))?
+    let name_str = match get_tuple_field(op_data, "name")? {
+        UpstreamValue::Sequence(SequenceData::String(CharType::ASCII(s))) => {
+            String::from_utf8(s.data.clone())
+                .map_err(|e| format!("Invalid event name: {}", e))?
         }
         other => {
             return Err(format!(
-                "Unexpected PoX synthetic event name type, expected StringASCII, got {:?}",
-                other.type_prefix()
+                "Unexpected PoX synthetic event name type, expected StringASCII, got {}",
+                short_type_name(other)
             ))
         }
     };
@@ -61,18 +65,18 @@ pub fn decode_pox_synthetic_event(
         .ok_or_else(|| format!("Unexpected PoX synthetic event data name: {}", name_str))?;
 
     // 5. Extract inner data tuple
-    let event_data_tuple = match &get_tuple_field(op_data, "data")?.value {
-        Value::Tuple(map) => map,
+    let event_data_tuple = match get_tuple_field(op_data, "data")? {
+        UpstreamValue::Tuple(t) => &t.data_map,
         other => {
             return Err(format!(
-                "Unexpected PoX synthetic event data payload type, expected Tuple, got {:?}",
-                other.type_prefix()
+                "Unexpected PoX synthetic event data payload type, expected Tuple, got {}",
+                short_type_name(other)
             ))
         }
     };
 
     // 6. Extract pox-addr if present
-    let (pox_addr, pox_addr_raw) = if event_data_tuple.contains_key("pox-addr") {
+    let (pox_addr, pox_addr_raw) = if tuple_get(event_data_tuple, "pox-addr").is_some() {
         extract_pox_addr(get_tuple_field(event_data_tuple, "pox-addr")?, network)?
     } else {
         (None, None)
@@ -95,7 +99,6 @@ pub fn decode_pox_synthetic_event(
             let first_unlocked_cycle =
                 extract_uint(get_tuple_field(event_data_tuple, "first-unlocked-cycle")?)?;
 
-            // Balance patch: balance += locked
             base.balance = base.balance.saturating_add(base.locked);
 
             PoxEventData::HandleUnlock {
@@ -113,13 +116,12 @@ pub fn decode_pox_synthetic_event(
             let unlock_burn_height =
                 extract_uint(get_tuple_field(event_data_tuple, "unlock-burn-height")?)?;
             let signer_key =
-                extract_optional_buffer_hex(event_data_tuple.get("signer-key"))?;
+                extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // Balance patches
             base.burnchain_unlock_height = unlock_burn_height;
             base.balance = base.balance.saturating_sub(lock_amount);
             base.locked = lock_amount;
@@ -140,13 +142,12 @@ pub fn decode_pox_synthetic_event(
             let total_locked =
                 extract_uint(get_tuple_field(event_data_tuple, "total-locked")?)?;
             let signer_key =
-                extract_optional_buffer_hex(event_data_tuple.get("signer-key"))?;
+                extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // Balance patches
             base.balance = base.balance.saturating_sub(increase_by);
             base.locked = base.locked.saturating_add(increase_by);
 
@@ -164,13 +165,12 @@ pub fn decode_pox_synthetic_event(
             let unlock_burn_height =
                 extract_uint(get_tuple_field(event_data_tuple, "unlock-burn-height")?)?;
             let signer_key =
-                extract_optional_buffer_hex(event_data_tuple.get("signer-key"))?;
+                extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // Balance patch
             base.burnchain_unlock_height = unlock_burn_height;
 
             PoxEventData::StackExtend {
@@ -190,11 +190,10 @@ pub fn decode_pox_synthetic_event(
             let unlock_burn_height_opt =
                 extract_optional_uint(Some(get_tuple_field(event_data_tuple, "unlock-burn-height")?))?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // Balance patch: if unlock_burn_height is set, use it
             if let Some(ubh) = unlock_burn_height_opt {
                 base.burnchain_unlock_height = ubh;
             }
@@ -220,11 +219,10 @@ pub fn decode_pox_synthetic_event(
                 get_tuple_field(event_data_tuple, "delegator")?,
             )?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // Balance patches
             base.burnchain_unlock_height = unlock_burn_height;
             base.balance = base.balance.saturating_sub(lock_amount);
             base.locked = lock_amount;
@@ -248,11 +246,10 @@ pub fn decode_pox_synthetic_event(
                 get_tuple_field(event_data_tuple, "delegator")?,
             )?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // Balance patches
             base.balance = base.balance.saturating_sub(increase_by);
             base.locked = base.locked.saturating_add(increase_by);
 
@@ -273,11 +270,10 @@ pub fn decode_pox_synthetic_event(
                 get_tuple_field(event_data_tuple, "delegator")?,
             )?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // Balance patch
             base.burnchain_unlock_height = unlock_burn_height;
 
             PoxEventData::DelegateStackExtend {
@@ -294,13 +290,12 @@ pub fn decode_pox_synthetic_event(
             let amount_ustx =
                 extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
             let signer_key =
-                extract_optional_buffer_hex(event_data_tuple.get("signer-key"))?;
+                extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // No balance patches for aggregation commit
             PoxEventData::StackAggregationCommit {
                 reward_cycle,
                 amount_ustx,
@@ -315,13 +310,12 @@ pub fn decode_pox_synthetic_event(
             let amount_ustx =
                 extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
             let signer_key =
-                extract_optional_buffer_hex(event_data_tuple.get("signer-key"))?;
+                extract_optional_buffer_hex(tuple_get(event_data_tuple, "signer-key"))?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // No balance patches
             PoxEventData::StackAggregationCommitIndexed {
                 reward_cycle,
                 amount_ustx,
@@ -336,11 +330,10 @@ pub fn decode_pox_synthetic_event(
             let amount_ustx =
                 extract_uint(get_tuple_field(event_data_tuple, "amount-ustx")?)?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // No balance patches
             PoxEventData::StackAggregationIncrease {
                 reward_cycle,
                 amount_ustx,
@@ -353,11 +346,10 @@ pub fn decode_pox_synthetic_event(
                 get_tuple_field(event_data_tuple, "delegate-to")?,
             )?;
             let end_cycle_id =
-                extract_optional_uint(event_data_tuple.get("end-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "end-cycle-id"))?;
             let start_cycle_id =
-                extract_optional_uint(event_data_tuple.get("start-cycle-id"))?;
+                extract_optional_uint(tuple_get(event_data_tuple, "start-cycle-id"))?;
 
-            // No balance patches
             PoxEventData::RevokeDelegateStx {
                 delegate_to,
                 end_cycle_id,
@@ -375,22 +367,28 @@ pub fn decode_pox_synthetic_event(
 
 // ─── Helper functions ───────────────────────────────────────────────────────
 
-fn get_tuple_field<'a>(
-    tuple: &'a BTreeMap<ClarityName, ClarityValue>,
+/// `BTreeMap::get` taking a `&str` to look up a `ClarityName` key. The
+/// upstream `ClarityName` is a `guarded_string`, which derefs to `&str` and
+/// implements `Borrow<str>`, so an `&str` lookup works directly.
+fn tuple_get<'a>(
+    tuple: &'a BTreeMap<ClarityName, UpstreamValue>,
     key: &str,
-) -> Result<&'a ClarityValue, String> {
-    tuple
-        .get(key)
+) -> Option<&'a UpstreamValue> {
+    tuple.get(key)
+}
+
+fn get_tuple_field<'a>(
+    tuple: &'a BTreeMap<ClarityName, UpstreamValue>,
+    key: &str,
+) -> Result<&'a UpstreamValue, String> {
+    tuple_get(tuple, key)
         .ok_or_else(|| format!("Missing expected tuple field: {}", key))
 }
 
-fn extract_uint(val: &ClarityValue) -> Result<u128, String> {
-    match &val.value {
-        Value::UInt(v) => Ok(*v),
-        other => Err(format!(
-            "Expected UInt, got {:?}",
-            other.type_prefix()
-        )),
+fn extract_uint(val: &UpstreamValue) -> Result<u128, String> {
+    match val {
+        UpstreamValue::UInt(v) => Ok(*v),
+        other => Err(format!("Expected UInt, got {}", short_type_name(other))),
     }
 }
 
@@ -399,24 +397,24 @@ fn extract_uint(val: &ClarityValue) -> Result<u128, String> {
 /// - `OptionalNone` → `Ok(None)`
 /// - `OptionalSome(UInt(v))` → `Ok(Some(v))`
 /// - `UInt(v)` → `Ok(Some(v))` (for fields that are sometimes bare uints)
-fn extract_optional_uint(val: Option<&ClarityValue>) -> Result<Option<u128>, String> {
-    match val {
-        None => Ok(None),
-        Some(cv) => match &cv.value {
-            Value::OptionalNone => Ok(None),
-            Value::OptionalSome(inner) => match &inner.value {
-                Value::UInt(v) => Ok(Some(*v)),
+fn extract_optional_uint(val: Option<&UpstreamValue>) -> Result<Option<u128>, String> {
+    let Some(cv) = val else { return Ok(None) };
+    match cv {
+        UpstreamValue::Optional(opt) => match &opt.data {
+            None => Ok(None),
+            Some(inner) => match inner.as_ref() {
+                UpstreamValue::UInt(v) => Ok(Some(*v)),
                 other => Err(format!(
-                    "Expected UInt inside OptionalSome, got {:?}",
-                    other.type_prefix()
+                    "Expected UInt inside OptionalSome, got {}",
+                    short_type_name(other)
                 )),
             },
-            Value::UInt(v) => Ok(Some(*v)),
-            other => Err(format!(
-                "Expected OptionalSome/OptionalNone/UInt, got {:?}",
-                other.type_prefix()
-            )),
         },
+        UpstreamValue::UInt(v) => Ok(Some(*v)),
+        other => Err(format!(
+            "Expected OptionalSome/OptionalNone/UInt, got {}",
+            short_type_name(other)
+        )),
     }
 }
 
@@ -426,39 +424,45 @@ fn extract_optional_uint(val: Option<&ClarityValue>) -> Result<Option<u128>, Str
 /// - `Buffer(bytes)` → `Ok(Some("0x..."))`
 /// - `OptionalSome(Buffer(bytes))` → `Ok(Some("0x..."))`
 fn extract_optional_buffer_hex(
-    val: Option<&ClarityValue>,
+    val: Option<&UpstreamValue>,
 ) -> Result<Option<String>, String> {
-    match val {
-        None => Ok(None),
-        Some(cv) => match &cv.value {
-            Value::OptionalNone => Ok(None),
-            Value::Buffer(bytes) => Ok(Some(encode_hex(bytes).to_string())),
-            Value::OptionalSome(inner) => match &inner.value {
-                Value::Buffer(bytes) => Ok(Some(encode_hex(bytes).to_string())),
+    let Some(cv) = val else { return Ok(None) };
+    match cv {
+        UpstreamValue::Sequence(SequenceData::Buffer(b)) => {
+            Ok(Some(encode_hex(&b.data).to_string()))
+        }
+        UpstreamValue::Optional(opt) => match &opt.data {
+            None => Ok(None),
+            Some(inner) => match inner.as_ref() {
+                UpstreamValue::Sequence(SequenceData::Buffer(b)) => {
+                    Ok(Some(encode_hex(&b.data).to_string()))
+                }
                 other => Err(format!(
-                    "Expected Buffer inside OptionalSome, got {:?}",
-                    other.type_prefix()
+                    "Expected Buffer inside OptionalSome, got {}",
+                    short_type_name(other)
                 )),
             },
-            other => Err(format!(
-                "Expected Buffer/OptionalSome/OptionalNone, got {:?}",
-                other.type_prefix()
-            )),
         },
+        other => Err(format!(
+            "Expected Buffer/OptionalSome/OptionalNone, got {}",
+            short_type_name(other)
+        )),
     }
 }
 
 /// Convert a Clarity principal value to a string address.
-fn clarity_principal_to_string(val: &ClarityValue) -> Result<String, String> {
-    match &val.value {
-        Value::PrincipalStandard(data) => c32_address(data.0, &data.1),
-        Value::PrincipalContract(data) => {
-            let addr = c32_address(data.issuer.0, &data.issuer.1)?;
-            Ok(format!("{}.{}", addr, data.name))
+fn clarity_principal_to_string(val: &UpstreamValue) -> Result<String, String> {
+    match val {
+        UpstreamValue::Principal(PrincipalData::Standard(spd)) => {
+            crate::address::c32::c32_address(spd.version(), &spd.1)
+        }
+        UpstreamValue::Principal(PrincipalData::Contract(qci)) => {
+            let addr = crate::address::c32::c32_address(qci.issuer.version(), &qci.issuer.1)?;
+            Ok(format!("{}.{}", addr, qci.name))
         }
         other => Err(format!(
-            "Unexpected Clarity value type for principal: {:?}",
-            other.type_prefix()
+            "Unexpected Clarity value type for principal: {}",
+            short_type_name(other)
         )),
     }
 }
@@ -466,61 +470,61 @@ fn clarity_principal_to_string(val: &ClarityValue) -> Result<String, String> {
 /// Extract pox-addr tuple (version + hashbytes) and convert to BTC address.
 /// Returns (btc_addr, raw_hex). Gracefully returns (None, None) on encoding errors.
 fn extract_pox_addr(
-    val: &ClarityValue,
+    val: &UpstreamValue,
     network: StacksNetwork,
 ) -> Result<(Option<String>, Option<String>), String> {
-    // Handle OptionalNone
-    if let Value::OptionalNone = &val.value {
-        return Ok((None, None));
+    // Handle OptionalNone short-circuit
+    if let UpstreamValue::Optional(opt) = val {
+        if opt.data.is_none() {
+            return Ok((None, None));
+        }
     }
 
-    // Handle OptionalSome wrapping
-    let addr_tuple = match &val.value {
-        Value::OptionalSome(inner) => match &inner.value {
-            Value::Tuple(map) => map,
-            other => {
+    let addr_tuple = match val {
+        UpstreamValue::Optional(opt) => match opt.data.as_deref() {
+            Some(UpstreamValue::Tuple(t)) => &t.data_map,
+            Some(other) => {
                 return Err(format!(
-                    "Expected Tuple inside OptionalSome for pox-addr, got {:?}",
-                    other.type_prefix()
-                ))
+                    "Expected Tuple inside OptionalSome for pox-addr, got {}",
+                    short_type_name(other)
+                ));
             }
+            None => return Ok((None, None)),
         },
-        Value::Tuple(map) => map,
+        UpstreamValue::Tuple(t) => &t.data_map,
         other => {
             return Err(format!(
-                "Expected Tuple/OptionalSome/OptionalNone for pox-addr, got {:?}",
-                other.type_prefix()
+                "Expected Tuple/OptionalSome/OptionalNone for pox-addr, got {}",
+                short_type_name(other)
             ))
         }
     };
 
-    let version_bytes = match &get_tuple_field(addr_tuple, "version")?.value {
-        Value::Buffer(bytes) => bytes.clone(),
+    let version_bytes = match get_tuple_field(addr_tuple, "version")? {
+        UpstreamValue::Sequence(SequenceData::Buffer(b)) => b.data.clone(),
         other => {
             return Err(format!(
-                "Expected Buffer for pox-addr version, got {:?}",
-                other.type_prefix()
+                "Expected Buffer for pox-addr version, got {}",
+                short_type_name(other)
             ))
         }
     };
 
-    let hashbytes = match &get_tuple_field(addr_tuple, "hashbytes")?.value {
-        Value::Buffer(bytes) => bytes.clone(),
+    let hashbytes = match get_tuple_field(addr_tuple, "hashbytes")? {
+        UpstreamValue::Sequence(SequenceData::Buffer(b)) => b.data.clone(),
         other => {
             return Err(format!(
-                "Expected Buffer for pox-addr hashbytes, got {:?}",
-                other.type_prefix()
+                "Expected Buffer for pox-addr hashbytes, got {}",
+                short_type_name(other)
             ))
         }
     };
 
-    // Build raw hex: version_bytes ++ hashbytes
     let mut raw = Vec::with_capacity(version_bytes.len() + hashbytes.len());
     raw.extend_from_slice(&version_bytes);
     raw.extend_from_slice(&hashbytes);
     let raw_hex = encode_hex(&raw).to_string();
 
-    // Try to encode BTC address; on error, return None for btc_addr (matches TS try/catch)
     let version = if version_bytes.is_empty() {
         return Ok((None, Some(raw_hex)));
     } else {
@@ -535,57 +539,98 @@ fn extract_pox_addr(
     Ok((btc_addr, Some(raw_hex)))
 }
 
+/// Short human-readable name for an upstream value's outer constructor, used
+/// in error messages. We don't try to reproduce the full Clarity type name
+/// (that's what `crate::clarity_value::neon_encoder::type_signature_string`
+/// is for); these messages just need to be diagnostic.
+fn short_type_name(val: &UpstreamValue) -> &'static str {
+    match val {
+        UpstreamValue::Int(_) => "Int",
+        UpstreamValue::UInt(_) => "UInt",
+        UpstreamValue::Bool(_) => "Bool",
+        UpstreamValue::Sequence(SequenceData::Buffer(_)) => "Buffer",
+        UpstreamValue::Sequence(SequenceData::List(_)) => "List",
+        UpstreamValue::Sequence(SequenceData::String(CharType::ASCII(_))) => "StringASCII",
+        UpstreamValue::Sequence(SequenceData::String(CharType::UTF8(_))) => "StringUTF8",
+        UpstreamValue::Principal(PrincipalData::Standard(_)) => "PrincipalStandard",
+        UpstreamValue::Principal(PrincipalData::Contract(_)) => "PrincipalContract",
+        UpstreamValue::Tuple(_) => "Tuple",
+        UpstreamValue::Optional(opt) => {
+            if opt.data.is_none() {
+                "OptionalNone"
+            } else {
+                "OptionalSome"
+            }
+        }
+        UpstreamValue::Response(r) => {
+            if r.committed {
+                "ResponseOk"
+            } else {
+                "ResponseErr"
+            }
+        }
+        UpstreamValue::CallableContract(_) => "CallableContract",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clarity::vm::types::{BuffData, OptionalData, ResponseData};
+
+    fn make_response_err(inner: UpstreamValue) -> UpstreamValue {
+        UpstreamValue::Response(ResponseData {
+            committed: false,
+            data: Box::new(inner),
+        })
+    }
 
     #[test]
     fn test_response_err_returns_none() {
-        // (err u1) = 0x08 0x01 0x00...01
-        let cv = ClarityValue::new(Value::ResponseErr(Box::new(ClarityValue::new(
-            Value::UInt(1),
-        ))));
+        let cv = make_response_err(UpstreamValue::UInt(1));
         let result = decode_pox_synthetic_event(&cv, StacksNetwork::Mainnet).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_non_response_errors() {
-        let cv = ClarityValue::new(Value::UInt(42));
+        let cv = UpstreamValue::UInt(42);
         let result = decode_pox_synthetic_event(&cv, StacksNetwork::Mainnet);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_extract_uint_works() {
-        let cv = ClarityValue::new(Value::UInt(12345));
+        let cv = UpstreamValue::UInt(12345);
         assert_eq!(extract_uint(&cv).unwrap(), 12345);
     }
 
     #[test]
     fn test_extract_optional_uint_none() {
         assert_eq!(extract_optional_uint(None).unwrap(), None);
-        let cv = ClarityValue::new(Value::OptionalNone);
+        let cv = UpstreamValue::Optional(OptionalData { data: None });
         assert_eq!(extract_optional_uint(Some(&cv)).unwrap(), None);
     }
 
     #[test]
     fn test_extract_optional_uint_some() {
-        let cv = ClarityValue::new(Value::OptionalSome(Box::new(ClarityValue::new(
-            Value::UInt(999),
-        ))));
+        let cv = UpstreamValue::Optional(OptionalData {
+            data: Some(Box::new(UpstreamValue::UInt(999))),
+        });
         assert_eq!(extract_optional_uint(Some(&cv)).unwrap(), Some(999));
     }
 
     #[test]
     fn test_extract_optional_buffer_hex() {
-        let cv = ClarityValue::new(Value::Buffer(vec![0xab, 0xcd]));
+        let cv = UpstreamValue::Sequence(SequenceData::Buffer(BuffData {
+            data: vec![0xab, 0xcd],
+        }));
         assert_eq!(
             extract_optional_buffer_hex(Some(&cv)).unwrap(),
             Some("0xabcd".to_string())
         );
 
-        let cv_none = ClarityValue::new(Value::OptionalNone);
+        let cv_none = UpstreamValue::Optional(OptionalData { data: None });
         assert_eq!(extract_optional_buffer_hex(Some(&cv_none)).unwrap(), None);
 
         assert_eq!(extract_optional_buffer_hex(None).unwrap(), None);

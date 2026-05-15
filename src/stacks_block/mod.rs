@@ -4,7 +4,7 @@ use std::io::Cursor;
 use crate::hex::encode_hex;
 use crate::neon_util::*;
 
-use self::deserialize::{NakamotoBlock, StacksBlock};
+use self::deserialize::{deserialize_nakamoto_block, StacksBlock};
 
 pub mod deserialize;
 mod neon_encoder;
@@ -13,7 +13,7 @@ mod neon_encoder;
 pub fn decode_nakamoto_block(mut cx: FunctionContext) -> JsResult<JsObject> {
     let block = arg_as_bytes(&mut cx, 0, |val_bytes| {
         let mut cursor = Cursor::new(val_bytes);
-        let block = NakamotoBlock::deserialize(&mut cursor)
+        let block = deserialize_nakamoto_block(&mut cursor)
             .or_else(|e| Err(format!("Failed to decode Nakamoto block: {:?}\n", &e)))?;
         Ok(block)
     })
@@ -21,11 +21,10 @@ pub fn decode_nakamoto_block(mut cx: FunctionContext) -> JsResult<JsObject> {
 
     let block_obj = cx.empty_object();
 
-    // Add computed block_id at top level for convenience
-    let block_id = cx.string(encode_hex(&block.header.block_id()));
+    let block_id = cx.string(encode_hex(&block.header.block_id().0));
     block_obj.set(&mut cx, "block_id", block_id)?;
 
-    block.neon_js_serialize(&mut cx, &block_obj, &())?;
+    Encode(&block).neon_js_serialize(&mut cx, &block_obj, &())?;
     Ok(block_obj)
 }
 
@@ -41,10 +40,9 @@ pub fn decode_stacks_block(mut cx: FunctionContext) -> JsResult<JsObject> {
 
     let block_obj = cx.empty_object();
 
-    // Add computed block_hash at top level for convenience
     let block_hash = cx.string(encode_hex(&block.header.block_hash()));
     block_obj.set(&mut cx, "block_hash", block_hash)?;
 
-    block.neon_js_serialize(&mut cx, &block_obj, &())?;
+    Encode(&block).neon_js_serialize(&mut cx, &block_obj, &())?;
     Ok(block_obj)
 }
