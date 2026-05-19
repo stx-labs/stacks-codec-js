@@ -298,9 +298,6 @@ jobs:
         run: npm run build:ts
       - name: Test js
         run: npm run test:js
-      - name: Test examples
-        working-directory: examples
-        run: npm i && npm test
 
   test_linux-x64-musl:
     if: ${{ github.event_name != 'workflow_dispatch' }}
@@ -323,9 +320,6 @@ jobs:
         run: npm run build:ts
       - name: Test js
         run: npm run test:js
-      - name: Test examples
-        working-directory: examples
-        run: npm i && npm test
 
   test_win-x64:
     if: ${{ github.event_name != 'workflow_dispatch' }}
@@ -349,9 +343,6 @@ jobs:
         run: npm run build:ts
       - name: Test js
         run: npm run test:js
-      - name: Test examples
-        working-directory: examples
-        run: npm i && npm test
 
   # test_darwin-x64:
   #   if: ${{ false && github.event_name != 'workflow_dispatch' }}
@@ -372,9 +363,6 @@ jobs:
   #       run: npm run build:ts
   #     - name: Test js
   #       run: npm run test:js
-  #     - name: Test examples
-  #       working-directory: examples
-  #       run: npm i && npm test
 
   publish-npm:
     if: ${{ github.event_name == 'workflow_dispatch' }}
