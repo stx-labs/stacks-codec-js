@@ -1,8 +1,8 @@
 use neon::prelude::*;
 use stacks_common::codec::StacksMessageCodec;
 
-use crate::hex::encode_hex;
-use crate::neon_util::{Encode, NeonJsSerialize};
+use crate::util::hex::encode_hex;
+use crate::util::neon::{Encode, NeonJsSerialize};
 
 use super::{
     BitVec, NakamotoBlock, NakamotoBlockHeader, StacksBlock, StacksBlockHeader, StacksWorkScore,

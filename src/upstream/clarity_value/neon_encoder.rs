@@ -22,8 +22,8 @@ use clarity::vm::types::{CharType, PrincipalData, SequenceData, Value as Upstrea
 use neon::prelude::*;
 use stacks_codec::StacksMessageCodec;
 
-use crate::address::c32_address;
-use crate::hex::{encode_hex, encode_hex_no_prefix};
+use crate::upstream::address::c32_address;
+use crate::util::hex::{encode_hex, encode_hex_no_prefix};
 
 /// Emit a single Clarity value as a JS object on `cur_obj`.
 ///

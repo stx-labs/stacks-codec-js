@@ -4,7 +4,7 @@ use clarity::vm::types::Value as UpstreamValue;
 use neon::prelude::*;
 use stacks_common::codec::StacksMessageCodec;
 
-use crate::neon_util::arg_as_bytes_copied;
+use crate::util::neon::arg_as_bytes_copied;
 
 use self::decode::decode_pox_synthetic_event;
 use self::neon_encoder::encode_pox_event;

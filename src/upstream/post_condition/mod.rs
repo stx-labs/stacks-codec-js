@@ -5,7 +5,7 @@
 //! `<TransactionPostCondition as StacksMessageCodec>::consensus_deserialize`.
 //! The Neon encoder for `TransactionPostCondition` (and friends) lives in
 //! [`neon_encoder`] and operates on these upstream types via the
-//! `Encode<'_, T>` newtype wrapper from `crate::neon_util`.
+//! `Encode<'_, T>` newtype wrapper from `crate::util::neon`.
 
 use std::{convert::TryInto, io::Cursor};
 
@@ -16,9 +16,9 @@ pub use blockstack_lib::chainstate::stacks::{
 use neon::prelude::*;
 use stacks_codec::StacksMessageCodec;
 
-use crate::hex::encode_hex;
-use crate::neon_util::{arg_as_bytes_copied, Encode, NeonJsSerialize};
-use crate::serialize_util::DeserializeError;
+use crate::util::hex::encode_hex;
+use crate::util::neon::{arg_as_bytes_copied, Encode, NeonJsSerialize};
+use crate::util::serialize::DeserializeError;
 
 pub mod neon_encoder;
 
@@ -72,12 +72,12 @@ pub fn decode_tx_post_conditions(mut cx: FunctionContext) -> JsResult<JsObject> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hex::decode_hex;
+    use crate::util::hex::decode_hex;
     use flate2::read::GzDecoder;
     use std::io::{prelude::*, BufReader};
 
     const SAMPLED_POST_CONDITIONS: &'static [u8] =
-        include_bytes!("../../perf-tests/decode-post-conditions/sampled-post-conditions.txt.gz");
+        include_bytes!("../../../perf-tests/decode-post-conditions/sampled-post-conditions.txt.gz");
 
     #[test]
     fn test_decode_samples() {

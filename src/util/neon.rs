@@ -1,6 +1,6 @@
 use neon::{prelude::*, types::buffer::TypedArray};
 
-use crate::hex::decode_hex;
+use crate::util::hex::decode_hex;
 
 pub trait NeonJsSerialize<ExtraCtx = (), TResult = ()> {
     fn neon_js_serialize(

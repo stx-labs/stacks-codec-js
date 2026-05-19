@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use clarity::vm::types::{CharType, PrincipalData, SequenceData, Value as UpstreamValue};
 use clarity::vm::ClarityName;
 
-use crate::hex::encode_hex;
+use crate::util::hex::encode_hex;
 
 use super::btc_address::pox_address_to_btc_address;
 use super::types::*;
@@ -417,10 +417,10 @@ fn extract_optional_buffer_hex(val: Option<&UpstreamValue>) -> Result<Option<Str
 fn clarity_principal_to_string(val: &UpstreamValue) -> Result<String, String> {
     match val {
         UpstreamValue::Principal(PrincipalData::Standard(spd)) => {
-            crate::address::c32_address(spd.version(), &spd.1)
+            crate::upstream::address::c32_address(spd.version(), &spd.1)
         }
         UpstreamValue::Principal(PrincipalData::Contract(qci)) => {
-            let addr = crate::address::c32_address(qci.issuer.version(), &qci.issuer.1)?;
+            let addr = crate::upstream::address::c32_address(qci.issuer.version(), &qci.issuer.1)?;
             Ok(format!("{}.{}", addr, qci.name))
         }
         other => Err(format!(
@@ -501,7 +501,7 @@ fn extract_pox_addr(
 
 /// Short human-readable name for an upstream value's outer constructor, used
 /// in error messages. We don't try to reproduce the full Clarity type name
-/// (that's what `crate::clarity_value::neon_encoder::type_signature_string`
+/// (that's what `crate::upstream::clarity_value::neon_encoder::type_signature_string`
 /// is for); these messages just need to be diagnostic.
 fn short_type_name(val: &UpstreamValue) -> &'static str {
     match val {

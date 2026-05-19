@@ -13,9 +13,9 @@ use clarity::vm::types::{
 use neon::prelude::*;
 use stacks_common::types::chainstate::StacksAddress as UpstreamStacksAddress;
 
-use crate::address::c32_address;
-use crate::hex::encode_hex;
-use crate::neon_util::{Encode, NeonJsSerialize};
+use super::c32_address;
+use crate::util::hex::encode_hex;
+use crate::util::neon::{Encode, NeonJsSerialize};
 
 impl NeonJsSerialize for Encode<'_, UpstreamStacksAddress> {
     fn neon_js_serialize(

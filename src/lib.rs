@@ -3,30 +3,23 @@ use neon::prelude::*;
 #[cfg(feature = "profiling")]
 use neon::types::buffer::TypedArray;
 
-use crate::address::{
+use crate::derived::memo::memo_to_string;
+use crate::derived::pox_events::decode_pox_event;
+use crate::upstream::address::{
     bitcoin_to_stacks_address, decode_clarity_value_to_principal, decode_stacks_address,
     is_valid_stacks_address, stacks_address_from_parts, stacks_to_bitcoin_address,
 };
-use crate::clarity_value::{
+use crate::upstream::clarity_value::{
     decode_clarity_value, decode_clarity_value_array, decode_clarity_value_to_repr,
     decode_clarity_value_type_name,
 };
-use crate::memo::memo_to_string;
-use crate::post_condition::decode_tx_post_conditions;
-use crate::pox_events::decode_pox_event;
-use crate::stacks_block::{decode_nakamoto_block, decode_stacks_block};
-use crate::stacks_tx::decode_transaction;
+use crate::upstream::post_condition::decode_tx_post_conditions;
+use crate::upstream::stacks_block::{decode_nakamoto_block, decode_stacks_block};
+use crate::upstream::stacks_tx::decode_transaction;
 
-pub mod address;
-pub mod clarity_value;
-pub mod hex;
-pub mod memo;
-pub mod neon_util;
-pub mod post_condition;
-pub mod pox_events;
-pub mod serialize_util;
-pub mod stacks_block;
-pub mod stacks_tx;
+pub mod derived;
+pub mod upstream;
+pub mod util;
 
 const GIT_VERSION: &str = git_version!(
     args = ["--all", "--long", "--always"],
@@ -140,8 +133,14 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
         cx.export_function("startProfiler", start_profiler)?;
         cx.export_function("stopProfiler", stop_profiler)?;
         cx.export_function("createProfiler", create_profiler)?;
-        cx.export_function("perfTestC32Encode", crate::address::perf_test_c32_encode)?;
-        cx.export_function("perfTestC32Decode", crate::address::perf_test_c32_decode)?;
+        cx.export_function(
+            "perfTestC32Encode",
+            crate::upstream::address::perf_test_c32_encode,
+        )?;
+        cx.export_function(
+            "perfTestC32Decode",
+            crate::upstream::address::perf_test_c32_decode,
+        )?;
     }
 
     Ok(())

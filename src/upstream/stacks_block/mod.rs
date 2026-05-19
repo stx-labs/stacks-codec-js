@@ -28,9 +28,9 @@ pub use stacks_common::types::chainstate::{
 pub use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum};
 pub use stacks_common::util::secp256k1::MessageSignature;
 
-use crate::hex::encode_hex;
-use crate::neon_util::*;
-use crate::serialize_util::DeserializeError;
+use crate::util::hex::encode_hex;
+use crate::util::neon::*;
+use crate::util::serialize::DeserializeError;
 
 mod neon_encoder;
 
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn test_nakamoto_block_deserialize() {
-        let data = include_bytes!("../../tests/fixtures/nakamoto-block.bin");
+        let data = include_bytes!("../../../tests/fixtures/nakamoto-block.bin");
         let mut cursor = Cursor::new(data.as_ref());
         let block = deserialize_nakamoto_block(&mut cursor);
         assert!(block.is_ok(), "deserialize failed: {:?}", block.err());

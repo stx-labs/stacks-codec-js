@@ -4,7 +4,7 @@
 //! (`blockstack_lib::chainstate::stacks`); parsing goes through the canonical
 //! `<StacksTransaction as StacksMessageCodec>::consensus_deserialize`. The
 //! Neon encoder in [`neon_encoder`] operates on these upstream types via the
-//! `Encode<'_, T>` newtype wrapper from `crate::neon_util`.
+//! `Encode<'_, T>` newtype wrapper from `crate::util::neon`.
 
 use std::io::Cursor;
 
@@ -22,9 +22,9 @@ use neon::prelude::*;
 use sha2::{Digest, Sha512_256};
 use stacks_codec::StacksMessageCodec;
 
-use crate::hex::encode_hex;
-use crate::neon_util::*;
-use crate::serialize_util::DeserializeError;
+use crate::util::hex::encode_hex;
+use crate::util::neon::*;
+use crate::util::serialize::DeserializeError;
 
 pub mod neon_encoder;
 pub use neon_encoder::neon_encoder_internal;
@@ -60,11 +60,11 @@ pub fn decode_transaction(mut cx: FunctionContext) -> JsResult<JsObject> {
 mod tests {
     use super::*;
     use crate::{
-        hex::decode_hex,
-        post_condition::{
+        upstream::post_condition::{
             AssetInfo, FungibleConditionCode, NonfungibleConditionCode, PostConditionPrincipal,
             TransactionPostCondition,
         },
+        util::hex::decode_hex,
     };
     use clarity::vm::types::Value as UpstreamValue;
     use clarity::vm::{ClarityName, ContractName};

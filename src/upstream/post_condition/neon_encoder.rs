@@ -7,8 +7,8 @@ use clarity::vm::types::Value as UpstreamValue;
 use neon::prelude::*;
 use stacks_codec::StacksMessageCodec;
 
-use crate::clarity_value::neon_encoder::decode_clarity_val;
-use crate::neon_util::{Encode, NeonJsSerialize};
+use crate::upstream::clarity_value::neon_encoder::decode_clarity_val;
+use crate::util::neon::{Encode, NeonJsSerialize};
 
 use super::{
     AssetInfo, AssetInfoID, FungibleConditionCode, NonfungibleConditionCode,
@@ -171,7 +171,7 @@ impl NeonJsSerialize for Encode<'_, AssetInfo> {
     ) -> NeonResult<()> {
         let addr = &self.0.contract_address;
         let contract_address_str =
-            crate::address::c32_address(addr.version(), addr.bytes().as_bytes())
+            crate::upstream::address::c32_address(addr.version(), addr.bytes().as_bytes())
                 .or_else(|e| cx.throw_error(format!("Error converting to C32 address: {}", e)))?;
         let contract_address = cx.string(contract_address_str);
         obj.set(cx, "contract_address", contract_address)?;

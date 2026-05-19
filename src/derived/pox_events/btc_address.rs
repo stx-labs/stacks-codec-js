@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use crate::address::check_encode_slice;
+use crate::upstream::address::check_encode_slice;
 
 use super::types::StacksNetwork;
 
@@ -71,7 +71,7 @@ fn encode_segwit(hrp: bech32::Hrp, witness_version: u8, data: &[u8]) -> Result<S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hex::decode_hex;
+    use crate::util::hex::decode_hex;
 
     #[test]
     fn test_p2pkh_mainnet() {

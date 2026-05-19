@@ -30,14 +30,14 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::Hash160;
 
-use crate::hex::encode_hex;
-use crate::neon_util::{arg_as_bytes, arg_as_bytes_copied};
+use crate::util::hex::encode_hex;
+use crate::util::neon::{arg_as_bytes, arg_as_bytes_copied};
 
 pub mod neon_encoder;
 
 // Base58check helpers. The full implementation lives in
 // `stacks_common::address::b58`; re-exported here so callers can use
-// `crate::address::{check_encode_slice, from_check}` directly.
+// `crate::upstream::address::{check_encode_slice, from_check}` directly.
 pub use stacks_common::address::b58::{check_encode_slice, from_check};
 
 // C32 version bytes for the Stacks address space.
@@ -276,7 +276,7 @@ pub fn perf_test_c32_decode(mut cx: FunctionContext) -> JsResult<JsBuffer> {
 
 #[cfg(test)]
 mod tests {
-    use crate::hex::decode_hex;
+    use crate::util::hex::decode_hex;
 
     use super::*;
 

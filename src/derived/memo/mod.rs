@@ -3,7 +3,7 @@ use neon::prelude::*;
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::neon_util::arg_as_bytes;
+use crate::util::neon::arg_as_bytes;
 
 mod unicode_printable;
 
@@ -42,7 +42,7 @@ pub fn memo_to_string(mut cx: FunctionContext) -> JsResult<JsString> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hex;
+    use crate::util::hex;
 
     #[test]
     fn test_memo_decode_whitespace() {

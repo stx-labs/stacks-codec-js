@@ -11,7 +11,7 @@ use std::io::Cursor;
 use clarity::vm::types::Value as UpstreamValue;
 use neon::prelude::*;
 
-use crate::neon_util::{arg_as_bytes, arg_as_bytes_copied};
+use crate::util::neon::{arg_as_bytes, arg_as_bytes_copied};
 
 use self::neon_encoder::{
     decode_clarity_val, repr_string as upstream_repr_string,
