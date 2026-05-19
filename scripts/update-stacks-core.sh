@@ -43,13 +43,14 @@ echo "Resolving ${UPSTREAM_OWNER}/${UPSTREAM_REPO}@${target_ref} to a commit SHA
 resolve_sha() {
     local ref="$1"
     local api_url="https://api.github.com/repos/${UPSTREAM_OWNER}/${UPSTREAM_REPO}/commits/${ref}"
-    local response
-    if ! response=$(curl -sSfL -H "Accept: application/vnd.github+json" "$api_url"); then
+    # Pipe the response through stdin so we don't blow ARG_MAX on large
+    # commit payloads (the /commits/<sha> endpoint returns the full diff).
+    if ! curl -sSfL -H "Accept: application/vnd.github+json" "$api_url" \
+        | python3 -c "import json,sys; print(json.load(sys.stdin)['sha'])"; then
         echo "ERROR: GitHub API request failed for ref '${ref}'." >&2
         echo "       Tried: ${api_url}" >&2
         exit 1
     fi
-    python3 -c "import json,sys; print(json.loads(sys.argv[1])['sha'])" "$response"
 }
 
 new_sha="$(resolve_sha "$target_ref")"

@@ -34,10 +34,10 @@ crate-type = ["lib", "cdylib"]
 #
 # IMPORTANT: keep the rev pin in sync across all three deps. The update script
 # enforces this.
-stacks-codec = { git = "https://github.com/stacks-network/stacks-core", rev = "7f7009b22306ec37b77f48f9987e2a8049797058" }
-stacks_common = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core", rev = "7f7009b22306ec37b77f48f9987e2a8049797058", default-features = false }
-clarity = { git = "https://github.com/stacks-network/stacks-core", rev = "7f7009b22306ec37b77f48f9987e2a8049797058", default-features = false }
-stackslib = { git = "https://github.com/stacks-network/stacks-core", rev = "7f7009b22306ec37b77f48f9987e2a8049797058" }
+stacks-codec = { git = "https://github.com/stacks-network/stacks-core", rev = "ca46d23f6fd97ef1a16d23a9966d20c94c19765d" }
+stacks_common = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core", rev = "ca46d23f6fd97ef1a16d23a9966d20c94c19765d", default-features = false }
+clarity = { git = "https://github.com/stacks-network/stacks-core", rev = "ca46d23f6fd97ef1a16d23a9966d20c94c19765d", default-features = false }
+stackslib = { git = "https://github.com/stacks-network/stacks-core", rev = "ca46d23f6fd97ef1a16d23a9966d20c94c19765d" }
 
 # === This crate's own dependencies ===
 git-version = "0.3.5"

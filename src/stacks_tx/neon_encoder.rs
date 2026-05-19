@@ -177,9 +177,9 @@ impl NeonJsSerialize<TxSerializationContext> for Encode<'_, TransactionSpendingC
 
 /// Lift an upstream [`clarity::vm::ClarityVersion`] into the wire byte the
 /// JS layer has historically reported in `clarity_version`. Upstream's enum
-/// is a bare `Clarity1..Clarity5` without explicit discriminants, so `as u8`
+/// is a bare `Clarity1..Clarity6` without explicit discriminants, so `as u8`
 /// would produce a 0-based index; the JS-facing value has always been the
-/// 1-based wire byte (Clarity1 = 1, Clarity5 = 5).
+/// 1-based wire byte (Clarity1 = 1, Clarity6 = 6).
 fn clarity_version_to_wire_byte(version: ClarityVersion) -> u8 {
     match version {
         ClarityVersion::Clarity1 => 1,
@@ -187,6 +187,7 @@ fn clarity_version_to_wire_byte(version: ClarityVersion) -> u8 {
         ClarityVersion::Clarity3 => 3,
         ClarityVersion::Clarity4 => 4,
         ClarityVersion::Clarity5 => 5,
+        ClarityVersion::Clarity6 => 6,
     }
 }
 
