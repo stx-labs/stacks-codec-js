@@ -29,12 +29,12 @@ use stacks_codec::StacksMessageCodec;
 use stacks_common::address::AddressHashMode;
 use stacks_common::types::chainstate::StacksAddress as UpstreamStacksAddress;
 
-use crate::address::c32::c32_address;
+use crate::address::c32_address;
 use crate::clarity_value::neon_encoder::decode_clarity_val;
 use crate::hex::encode_hex;
 use crate::neon_util::{Encode, NeonJsSerialize};
 
-use super::deserialize::{
+use super::{
     CoinbasePayload, MultisigSpendingCondition, OrderIndependentMultisigSpendingCondition,
     SinglesigSpendingCondition, StacksMicroblockHeader, StacksTransaction, TenureChangePayload,
     TransactionAuth, TransactionAuthField, TransactionAuthFieldID, TransactionAuthFlags,

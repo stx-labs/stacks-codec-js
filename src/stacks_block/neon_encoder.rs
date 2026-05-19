@@ -4,7 +4,7 @@ use stacks_common::codec::StacksMessageCodec;
 use crate::hex::encode_hex;
 use crate::neon_util::{Encode, NeonJsSerialize};
 
-use super::deserialize::{
+use super::{
     BitVec, NakamotoBlock, NakamotoBlockHeader, StacksBlock, StacksBlockHeader, StacksWorkScore,
 };
 use stacks_common::util::vrf::VRFProof;

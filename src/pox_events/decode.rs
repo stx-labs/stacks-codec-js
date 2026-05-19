@@ -417,10 +417,10 @@ fn extract_optional_buffer_hex(val: Option<&UpstreamValue>) -> Result<Option<Str
 fn clarity_principal_to_string(val: &UpstreamValue) -> Result<String, String> {
     match val {
         UpstreamValue::Principal(PrincipalData::Standard(spd)) => {
-            crate::address::c32::c32_address(spd.version(), &spd.1)
+            crate::address::c32_address(spd.version(), &spd.1)
         }
         UpstreamValue::Principal(PrincipalData::Contract(qci)) => {
-            let addr = crate::address::c32::c32_address(qci.issuer.version(), &qci.issuer.1)?;
+            let addr = crate::address::c32_address(qci.issuer.version(), &qci.issuer.1)?;
             Ok(format!("{}.{}", addr, qci.name))
         }
         other => Err(format!(

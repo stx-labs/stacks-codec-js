@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use crate::address::b58;
+use crate::address::check_encode_slice;
 
 use super::types::StacksNetwork;
 
@@ -23,14 +23,14 @@ pub fn pox_address_to_btc_address(
             let btc_version: u8 = if network.is_mainnet() { 0x00 } else { 0x6f };
             let mut data = vec![btc_version];
             data.extend_from_slice(hashbytes);
-            Ok(b58::check_encode_slice(&data))
+            Ok(check_encode_slice(&data))
         }
         // P2SH, P2SH-P2WPKH, P2SH-P2WSH
         1..=3 => {
             let btc_version: u8 = if network.is_mainnet() { 0x05 } else { 0xc4 };
             let mut data = vec![btc_version];
             data.extend_from_slice(hashbytes);
-            Ok(b58::check_encode_slice(&data))
+            Ok(check_encode_slice(&data))
         }
         // P2WPKH (segwit v0, bech32)
         4 => {

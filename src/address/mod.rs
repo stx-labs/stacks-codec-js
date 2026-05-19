@@ -1,3 +1,20 @@
+//! Stacks / Bitcoin address conversions and Neon entry points.
+//!
+//! All wire-format work is delegated to upstream
+//! (`stacks_common::address::{c32,b58}`, `clarity::vm::types::PrincipalData`,
+//! `blockstack_lib::burnchains::bitcoin::address::LegacyBitcoinAddress`,
+//! `stacks_common::types::chainstate::StacksAddress`). This module hosts:
+//!
+//! - Thin wrappers over `c32_address` / `c32_address_decode` that normalize
+//!   the error type to `String` and the byte vec to `[u8; 20]` for callers.
+//! - The four C32 version-byte constants for the Stacks address space.
+//! - The b58 re-exports the rest of the crate uses.
+//! - The local btc↔stx version-byte mapping and the Neon-facing JS bindings.
+//!
+//! The Neon `NeonJsSerialize` impls for `StacksAddress` / `PrincipalData` /
+//! `StandardPrincipalData` live in `neon_encoder.rs` — that file is the only
+//! sub-module remaining under this directory.
+
 use std::io::Cursor;
 
 use blockstack_lib::burnchains::bitcoin::address::{
@@ -16,17 +33,38 @@ use stacks_common::util::hash::Hash160;
 use crate::hex::encode_hex;
 use crate::neon_util::{arg_as_bytes, arg_as_bytes_copied};
 
-use self::c32::c32_address;
-use self::c32::c32_address_decode;
-use self::stacks_address::{
-    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
-    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-
-pub mod b58;
-pub mod c32;
 pub mod neon_encoder;
-pub mod stacks_address;
+
+// Base58check helpers. The full implementation lives in
+// `stacks_common::address::b58`; re-exported here so callers can use
+// `crate::address::{check_encode_slice, from_check}` directly.
+pub use stacks_common::address::b58::{check_encode_slice, from_check};
+
+// C32 version bytes for the Stacks address space.
+pub const C32_ADDRESS_VERSION_MAINNET_SINGLESIG: u8 = 22; // P
+pub const C32_ADDRESS_VERSION_MAINNET_MULTISIG: u8 = 20; // M
+pub const C32_ADDRESS_VERSION_TESTNET_SINGLESIG: u8 = 26; // T
+pub const C32_ADDRESS_VERSION_TESTNET_MULTISIG: u8 = 21; // N
+
+/// Wrapper over `stacks_common::address::c32::c32_address` that normalizes
+/// the error type to `String`.
+pub fn c32_address(version: u8, data: &[u8]) -> Result<String, String> {
+    stacks_common::address::c32::c32_address(version, data).map_err(|e| format!("{}", e))
+}
+
+/// Wrapper over `stacks_common::address::c32::c32_address_decode` that
+/// reshapes the returned `Vec<u8>` into a fixed `[u8; 20]` (matching how
+/// every caller in this crate consumes it) and normalizes the error type
+/// to `String`.
+pub fn c32_address_decode(c32_address_str: &str) -> Result<(u8, [u8; 20]), String> {
+    let (version, bytes) = stacks_common::address::c32::c32_address_decode(c32_address_str)
+        .map_err(|e| format!("{}", e))?;
+    let bytes: [u8; 20] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| format!("c32 address decoded to {} bytes, expected 20", bytes.len()))?;
+    Ok((version, bytes))
+}
 
 fn btc_to_stx_addr_version_byte(version: u8) -> Option<u8> {
     match version {
@@ -70,7 +108,7 @@ fn stx_addr_to_btc_addr(addr: &StacksAddress) -> String {
         .unwrap_or(addr.version());
     let mut all_bytes = vec![btc_version];
     all_bytes.extend_from_slice(addr.bytes().as_bytes());
-    b58::check_encode_slice(&all_bytes)
+    check_encode_slice(&all_bytes)
 }
 
 pub fn is_valid_stacks_address(mut cx: FunctionContext) -> JsResult<JsBoolean> {
@@ -264,22 +302,4 @@ mod tests {
         let output = decode_clarity_value_to_principal_inner(&input).unwrap();
         assert_eq!(output, "SP2GKVKM12JZ0YW3ZJH3GMBJYGVNM0BS94ERA45AM");
     }
-
-    /*
-    #[test]
-    fn test_bitcoin_to_stacks_address_mainnet() {
-        let input = "1FhZqHcrXaWcNCJPEGn2BRZ9angJvYfTBT";
-        let output = stacks_address_from_bitcoin_address(input.to_string()).unwrap().to_string();
-        let expected = "SP2GKVKM12JZ0YW3ZJH3GMBJYGVNM0BS94ERA45AM";
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_bitcoin_to_stacks_address_testnet() {
-        let input = "mvtMXL9MYH8HaNz7u9AgapGqoFYpNDfKBx";
-        let output = stacks_address_from_bitcoin_address(input.to_string()).unwrap().to_string();
-        let expected = "ST2M9C0SHDV4FMXF3R0P98H8GQPW5824DVEJ9MVQZ";
-        assert_eq!(output, expected);
-    }
-    */
 }

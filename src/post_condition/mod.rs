@@ -1,14 +1,34 @@
+//! Transaction post-condition decoding (Neon entry point + types).
+//!
+//! All types come directly from upstream
+//! (`blockstack_lib::chainstate::stacks`); parsing goes through the canonical
+//! `<TransactionPostCondition as StacksMessageCodec>::consensus_deserialize`.
+//! The Neon encoder for `TransactionPostCondition` (and friends) lives in
+//! [`neon_encoder`] and operates on these upstream types via the
+//! `Encode<'_, T>` newtype wrapper from `crate::neon_util`.
+
 use std::{convert::TryInto, io::Cursor};
 
+pub use blockstack_lib::chainstate::stacks::{
+    AssetInfo, AssetInfoID, FungibleConditionCode, NonfungibleConditionCode,
+    PostConditionPrincipal, PostConditionPrincipalID, TransactionPostCondition,
+};
 use neon::prelude::*;
+use stacks_codec::StacksMessageCodec;
 
 use crate::hex::encode_hex;
 use crate::neon_util::{arg_as_bytes_copied, Encode, NeonJsSerialize};
+use crate::serialize_util::DeserializeError;
 
-use self::deserialize::deserialize_post_condition;
-
-pub mod deserialize;
 pub mod neon_encoder;
+
+/// Deserialize a single post-condition entry from the wire format.
+pub fn deserialize_post_condition(
+    fd: &mut Cursor<&[u8]>,
+) -> Result<TransactionPostCondition, DeserializeError> {
+    <TransactionPostCondition as StacksMessageCodec>::consensus_deserialize(fd)
+        .map_err(|e| DeserializeError::from(format!("Failed to decode post-condition: {}", e)))
+}
 
 pub fn decode_tx_post_conditions(mut cx: FunctionContext) -> JsResult<JsObject> {
     let input_bytes = arg_as_bytes_copied(&mut cx, 0)?;

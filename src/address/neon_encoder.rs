@@ -13,7 +13,7 @@ use clarity::vm::types::{
 use neon::prelude::*;
 use stacks_common::types::chainstate::StacksAddress as UpstreamStacksAddress;
 
-use crate::address::c32::c32_address;
+use crate::address::c32_address;
 use crate::hex::encode_hex;
 use crate::neon_util::{Encode, NeonJsSerialize};
 
