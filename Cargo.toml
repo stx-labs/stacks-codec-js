@@ -43,7 +43,6 @@ stackslib = { git = "https://github.com/stacks-network/stacks-core", rev = "ca46
 git-version = "0.3.5"
 lazy_static = "1.4.0"
 unicode-segmentation = "1.9.0"
-rand = "0.8.5"
 regex = "1.5"
 # Used by the PoX synthetic-event decoder (no upstream equivalent).
 bech32 = "0.11"
@@ -51,11 +50,6 @@ bech32 = "0.11"
 # the local `hex` helpers (with their SIMD path) stay available.
 hex = { version = "0.4", default-features = false, features = ["alloc"] }
 byteorder = "1.4.3"
-
-[dependencies.pprof]
-version = "0.9.1"
-features = ["flamegraph"]
-optional = true
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(target_env = "msvc")))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
@@ -70,13 +64,5 @@ features = ["napi-6"]
 
 [dev-dependencies]
 flate2 = "1.0.22"
-criterion = "0.3"
 # Pull from upstream so we use the same hex helpers as the canonical impls.
 hex = "0.4"
-
-[features]
-profiling = ["pprof"]
-
-[[bench]]
-name = "c32_bench"
-harness = false

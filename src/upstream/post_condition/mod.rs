@@ -77,7 +77,7 @@ mod tests {
     use std::io::{prelude::*, BufReader};
 
     const SAMPLED_POST_CONDITIONS: &'static [u8] =
-        include_bytes!("../../../perf-tests/decode-post-conditions/sampled-post-conditions.txt.gz");
+        include_bytes!("../../../tests/fixtures/sampled-post-conditions.txt.gz");
 
     #[test]
     fn test_decode_samples() {

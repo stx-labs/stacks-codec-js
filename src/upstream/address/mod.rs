@@ -24,8 +24,6 @@ use blockstack_lib::burnchains::bitcoin::address::{
 };
 use clarity::vm::types::PrincipalData;
 use neon::prelude::*;
-#[cfg(feature = "profiling")]
-use neon::types::buffer::TypedArray;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::Hash160;
@@ -211,67 +209,6 @@ pub fn bitcoin_to_stacks_address(mut cx: FunctionContext) -> JsResult<JsString> 
         .or_else(|e| cx.throw_error(format!("Error converting to C32 address: {}", e)))?;
 
     Ok(cx.string(stacks_addr))
-}
-
-#[cfg(feature = "profiling")]
-pub fn perf_test_c32_encode(mut cx: FunctionContext) -> JsResult<JsBuffer> {
-    use rand::Rng;
-    let mut inputs: Vec<(u8, [u8; 20])> = vec![];
-    for _ in 0..2000 {
-        let random_version: u8 = rand::thread_rng().gen_range(0..31);
-        let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
-        inputs.push((random_version, random_bytes));
-    }
-
-    let profiler = pprof::ProfilerGuard::new(100)
-        .or_else(|e| cx.throw_error(format!("Failed to create profiler guard: {}", e))?)?;
-
-    for (version, bytes) in inputs {
-        for _ in 0..50_000 {
-            c32_address(version, &bytes).unwrap();
-        }
-    }
-
-    let report = profiler.report().build().unwrap();
-    let mut buf = Vec::new();
-    report
-        .flamegraph(&mut buf)
-        .or_else(|e| cx.throw_error(format!("Error creating flamegraph: {}", e)))?;
-
-    let mut result = cx.buffer(buf.len())?;
-    result.as_mut_slice(&mut cx).copy_from_slice(&buf);
-    Ok(result)
-}
-
-#[cfg(feature = "profiling")]
-pub fn perf_test_c32_decode(mut cx: FunctionContext) -> JsResult<JsBuffer> {
-    use rand::Rng;
-    let mut inputs: Vec<String> = vec![];
-    for _ in 0..2000 {
-        let random_version: u8 = rand::thread_rng().gen_range(0..31);
-        let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
-        let addr = c32_address(random_version, &random_bytes).unwrap();
-        inputs.push(addr);
-    }
-
-    let profiler = pprof::ProfilerGuard::new(100)
-        .or_else(|e| cx.throw_error(format!("Failed to create profiler guard: {}", e))?)?;
-
-    for _ in 0..50_000 {
-        for addr in &inputs {
-            c32_address_decode(&addr).unwrap();
-        }
-    }
-
-    let report = profiler.report().build().unwrap();
-    let mut buf = Vec::new();
-    report
-        .flamegraph(&mut buf)
-        .or_else(|e| cx.throw_error(format!("Error creating flamegraph: {}", e)))?;
-
-    let mut result = cx.buffer(buf.len())?;
-    result.as_mut_slice(&mut cx).copy_from_slice(&buf);
-    Ok(result)
 }
 
 #[cfg(test)]
