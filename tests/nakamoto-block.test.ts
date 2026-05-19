@@ -48,60 +48,45 @@ describe('Nakamoto block decoding', () => {
 });
 
 describe('Stacks 2.x block decoding', () => {
-  it('should decode a simple Stacks 2.x block header structure', () => {
-    // Build a minimal test block with:
-    // - header with version, total_work, proof, parent_block, etc.
-    // - 0 transactions
+  // `decodeStacksBlock` now delegates to upstream
+  // `<StacksBlock as StacksMessageCodec>::consensus_deserialize`, which
+  // enforces the same checks the Stacks node enforces at the wire layer:
+  // VRF proofs must be valid Edwards curve points, the tx vector must be
+  // non-empty, transaction ids must be unique, anchor modes must be
+  // `OnChainOnly` or `Any`, and the header's `tx_merkle_root` must match
+  // the merkle root of the txs. Happy-path coverage for 2.x blocks requires
+  // a real mainnet block fixture; until such a fixture lands in
+  // `tests/fixtures/`, the tests below pin the strict-rejection behavior so
+  // any future regression to the old permissive parser is caught.
 
-    const headerParts = [
+  // Matches stacks-common `VRFProof::empty()`: an all-`0x01` 80-byte proof
+  // that decodes to a valid (non-low-order) curve point.
+  const validVrfProofHex = '01'.repeat(80);
+
+  function buildHeader(opts: { proof: string; total_work_work?: string }): string {
+    return [
       '00', // version
       '0000000000000001', // total_work.burn
-      '0000000000000001', // total_work.work
-      '00'.repeat(80), // VRF proof (80 bytes)
-      '1111111111111111111111111111111111111111111111111111111111111111', // parent_block (32 bytes)
-      '2222222222222222222222222222222222222222222222222222222222222222', // parent_microblock (32 bytes)
-      '0000', // parent_microblock_sequence (0)
-      '3333333333333333333333333333333333333333333333333333333333333333', // tx_merkle_root (32 bytes)
-      '4444444444444444444444444444444444444444444444444444444444444444', // state_index_root (32 bytes)
-      '5555555555555555555555555555555555555555', // microblock_pubkey_hash (20 bytes)
-    ];
+      opts.total_work_work ?? '0000000000000001', // total_work.work
+      opts.proof, // VRF proof (80 bytes)
+      '11'.repeat(32), // parent_block
+      '22'.repeat(32), // parent_microblock
+      '0000', // parent_microblock_sequence
+      '33'.repeat(32), // tx_merkle_root
+      '44'.repeat(32), // state_index_root
+      '55'.repeat(20), // microblock_pubkey_hash
+    ].join('');
+  }
 
-    const txsParts = [
-      '00000000', // tx count (0)
-    ];
+  it('rejects blocks whose VRF proof is not a valid curve point', () => {
+    const blockHex =
+      buildHeader({ proof: '00'.repeat(80) }) + '00000000'; // 0 txs
+    expect(() => decodeStacksBlock(blockHex)).toThrow(/VRF proof|curve|consensus/i);
+  });
 
-    const blockHex = headerParts.join('') + txsParts.join('');
-
-    const result = decodeStacksBlock(blockHex);
-
-    expect(result).toHaveProperty('block_hash');
-    expect(result).toHaveProperty('header');
-    expect(result).toHaveProperty('txs');
-
-    expect(result.header.version).toBe(0);
-    expect(result.header.total_work.burn).toBe('1');
-    expect(result.header.total_work.work).toBe('1');
-    expect(result.header.parent_block).toBe(
-      '0x1111111111111111111111111111111111111111111111111111111111111111'
-    );
-    expect(result.header.parent_microblock).toBe(
-      '0x2222222222222222222222222222222222222222222222222222222222222222'
-    );
-    expect(result.header.parent_microblock_sequence).toBe(0);
-    expect(result.header.tx_merkle_root).toBe(
-      '0x3333333333333333333333333333333333333333333333333333333333333333'
-    );
-    expect(result.header.state_index_root).toBe(
-      '0x4444444444444444444444444444444444444444444444444444444444444444'
-    );
-    expect(result.header.microblock_pubkey_hash).toBe('0x5555555555555555555555555555555555555555');
-
-    expect(result.txs).toHaveLength(0);
-
-    // Computed hash should be hex string (with 0x prefix)
-    expect(result.header.block_hash).toMatch(/^0x[0-9a-f]{64}$/);
-    expect(result.block_hash).toMatch(/^0x[0-9a-f]{64}$/);
-    expect(result.block_hash).toBe(result.header.block_hash);
+  it('rejects zero-transaction blocks even when the VRF proof is valid', () => {
+    const blockHex = buildHeader({ proof: validVrfProofHex }) + '00000000';
+    expect(() => decodeStacksBlock(blockHex)).toThrow(/zero transactions/i);
   });
 
   it('should handle invalid block data gracefully', () => {
