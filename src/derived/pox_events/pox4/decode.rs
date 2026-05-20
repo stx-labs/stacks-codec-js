@@ -1,11 +1,13 @@
-use std::collections::BTreeMap;
-
-use clarity::vm::types::{CharType, PrincipalData, SequenceData, Value as UpstreamValue};
-use clarity::vm::ClarityName;
+use clarity::vm::types::{CharType, SequenceData, Value as UpstreamValue};
 
 use crate::util::hex::encode_hex;
 
-use super::btc_address::pox_address_to_btc_address;
+use super::super::btc_address::pox_address_to_btc_address;
+use super::super::clarity_helpers::{
+    clarity_principal_to_string, extract_optional_buffer_hex, extract_optional_uint, extract_uint,
+    get_tuple_field, short_type_name, tuple_get,
+};
+use super::super::types::StacksNetwork;
 use super::types::*;
 
 /// Decode a Clarity value into a PoX synthetic event.
@@ -333,103 +335,6 @@ pub fn decode_pox_synthetic_event(
 
 // ─── Helper functions ───────────────────────────────────────────────────────
 
-/// `BTreeMap::get` taking a `&str` to look up a `ClarityName` key. The
-/// upstream `ClarityName` is a `guarded_string`, which derefs to `&str` and
-/// implements `Borrow<str>`, so an `&str` lookup works directly.
-fn tuple_get<'a>(
-    tuple: &'a BTreeMap<ClarityName, UpstreamValue>,
-    key: &str,
-) -> Option<&'a UpstreamValue> {
-    tuple.get(key)
-}
-
-fn get_tuple_field<'a>(
-    tuple: &'a BTreeMap<ClarityName, UpstreamValue>,
-    key: &str,
-) -> Result<&'a UpstreamValue, String> {
-    tuple_get(tuple, key).ok_or_else(|| format!("Missing expected tuple field: {}", key))
-}
-
-fn extract_uint(val: &UpstreamValue) -> Result<u128, String> {
-    match val {
-        UpstreamValue::UInt(v) => Ok(*v),
-        other => Err(format!("Expected UInt, got {}", short_type_name(other))),
-    }
-}
-
-/// Extract an optional uint from:
-/// - `None` (field absent) → `Ok(None)`
-/// - `OptionalNone` → `Ok(None)`
-/// - `OptionalSome(UInt(v))` → `Ok(Some(v))`
-/// - `UInt(v)` → `Ok(Some(v))` (for fields that are sometimes bare uints)
-fn extract_optional_uint(val: Option<&UpstreamValue>) -> Result<Option<u128>, String> {
-    let Some(cv) = val else { return Ok(None) };
-    match cv {
-        UpstreamValue::Optional(opt) => match &opt.data {
-            None => Ok(None),
-            Some(inner) => match inner.as_ref() {
-                UpstreamValue::UInt(v) => Ok(Some(*v)),
-                other => Err(format!(
-                    "Expected UInt inside OptionalSome, got {}",
-                    short_type_name(other)
-                )),
-            },
-        },
-        UpstreamValue::UInt(v) => Ok(Some(*v)),
-        other => Err(format!(
-            "Expected OptionalSome/OptionalNone/UInt, got {}",
-            short_type_name(other)
-        )),
-    }
-}
-
-/// Extract a buffer as a hex string from:
-/// - `None` (field absent) → `Ok(None)`
-/// - `OptionalNone` → `Ok(None)`
-/// - `Buffer(bytes)` → `Ok(Some("0x..."))`
-/// - `OptionalSome(Buffer(bytes))` → `Ok(Some("0x..."))`
-fn extract_optional_buffer_hex(val: Option<&UpstreamValue>) -> Result<Option<String>, String> {
-    let Some(cv) = val else { return Ok(None) };
-    match cv {
-        UpstreamValue::Sequence(SequenceData::Buffer(b)) => {
-            Ok(Some(encode_hex(&b.data).to_string()))
-        }
-        UpstreamValue::Optional(opt) => match &opt.data {
-            None => Ok(None),
-            Some(inner) => match inner.as_ref() {
-                UpstreamValue::Sequence(SequenceData::Buffer(b)) => {
-                    Ok(Some(encode_hex(&b.data).to_string()))
-                }
-                other => Err(format!(
-                    "Expected Buffer inside OptionalSome, got {}",
-                    short_type_name(other)
-                )),
-            },
-        },
-        other => Err(format!(
-            "Expected Buffer/OptionalSome/OptionalNone, got {}",
-            short_type_name(other)
-        )),
-    }
-}
-
-/// Convert a Clarity principal value to a string address.
-fn clarity_principal_to_string(val: &UpstreamValue) -> Result<String, String> {
-    match val {
-        UpstreamValue::Principal(PrincipalData::Standard(spd)) => {
-            crate::upstream::address::c32_address(spd.version(), &spd.1)
-        }
-        UpstreamValue::Principal(PrincipalData::Contract(qci)) => {
-            let addr = crate::upstream::address::c32_address(qci.issuer.version(), &qci.issuer.1)?;
-            Ok(format!("{}.{}", addr, qci.name))
-        }
-        other => Err(format!(
-            "Unexpected Clarity value type for principal: {}",
-            short_type_name(other)
-        )),
-    }
-}
-
 /// Extract pox-addr tuple (version + hashbytes) and convert to BTC address.
 /// Returns (btc_addr, raw_hex). Gracefully returns (None, None) on encoding errors.
 fn extract_pox_addr(
@@ -497,40 +402,6 @@ fn extract_pox_addr(
     let btc_addr = pox_address_to_btc_address(version, &hashbytes, network).ok();
 
     Ok((btc_addr, Some(raw_hex)))
-}
-
-/// Short human-readable name for an upstream value's outer constructor, used
-/// in error messages. We don't try to reproduce the full Clarity type name
-/// (that's what `crate::upstream::clarity_value::neon_encoder::type_signature_string`
-/// is for); these messages just need to be diagnostic.
-fn short_type_name(val: &UpstreamValue) -> &'static str {
-    match val {
-        UpstreamValue::Int(_) => "Int",
-        UpstreamValue::UInt(_) => "UInt",
-        UpstreamValue::Bool(_) => "Bool",
-        UpstreamValue::Sequence(SequenceData::Buffer(_)) => "Buffer",
-        UpstreamValue::Sequence(SequenceData::List(_)) => "List",
-        UpstreamValue::Sequence(SequenceData::String(CharType::ASCII(_))) => "StringASCII",
-        UpstreamValue::Sequence(SequenceData::String(CharType::UTF8(_))) => "StringUTF8",
-        UpstreamValue::Principal(PrincipalData::Standard(_)) => "PrincipalStandard",
-        UpstreamValue::Principal(PrincipalData::Contract(_)) => "PrincipalContract",
-        UpstreamValue::Tuple(_) => "Tuple",
-        UpstreamValue::Optional(opt) => {
-            if opt.data.is_none() {
-                "OptionalNone"
-            } else {
-                "OptionalSome"
-            }
-        }
-        UpstreamValue::Response(r) => {
-            if r.committed {
-                "ResponseOk"
-            } else {
-                "ResponseErr"
-            }
-        }
-        UpstreamValue::CallableContract(_) => "CallableContract",
-    }
 }
 
 #[cfg(test)]
