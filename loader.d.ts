@@ -5,7 +5,7 @@ import type {
   DecodedStacksBlockResult,
   ClarityValue,
   ClarityValueAbstract,
-  DecodedPoxSyntheticEvent,
+  Pox4Event,
 } from './index.js';
 
 export function getVersion(): string;
@@ -72,20 +72,21 @@ export function stacksAddressFromParts(version: number, hash160: string | Buffer
 export function memoToString(memo: string | Buffer): string;
 
 /**
- * Decode a serialized Clarity value representing a PoX synthetic print event.
+ * Decode a serialized Clarity value representing a PoX synthetic event.
+ *
+ * Inputs from pox-2 / pox-3 / pox-4 are recognized today and return a
+ * `Pox4Event`. The native runtime can also emit pox-5
+ * print events (typed at the Rust layer); their TypeScript counterparts
+ * will be added in a follow-up change, at which point the return type
+ * here will broaden to a union.
+ *
  * @param arg - Hex string or Buffer containing the serialized Clarity value
  * @param network - The Stacks network type
- * @returns The decoded PoX event, or null if the Clarity value is a ResponseErr
+ * @returns The decoded PoX event, or null if the Clarity value isn't a
+ *   recognized event shape (e.g. a `Response(Err _)` from a failed
+ *   stacking call).
  */
 export function decodePoxSyntheticEvent(
   arg: string | Buffer,
   network: 'mainnet' | 'testnet' | 'devnet' | 'mocknet'
-): DecodedPoxSyntheticEvent | null;
-
-export function startProfiler(): string;
-
-export function stopProfiler(): Buffer;
-
-export function createProfiler(): () => Buffer;
-
-export function perfTestC32Encode(): Buffer;
+): Pox4Event | null;

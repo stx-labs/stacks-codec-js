@@ -646,10 +646,19 @@ export interface StacksWorkScore {
 }
 
 // ============================================================================
-// PoX Synthetic Event Types
+// PoX Synthetic Event Types — pox-2 / pox-3 / pox-4
+//
+// These describe synthetic events the Stacks node emits for the older PoX
+// contracts (pox-2 through pox-4). The wire shape is always
+// `Response(Ok({ stacker, locked, ..., name, data }))` — the node
+// synthesizes the wrapper from contract-call return values.
+//
+// PoX-5 changed the model: events are produced by `(print { topic, ... })`
+// calls inside the contract itself, so they have a different shape. Those
+// types live in the next section below.
 // ============================================================================
 
-export enum PoxEventName {
+export enum Pox4EventName {
   HandleUnlock = 'handle-unlock',
   StackStx = 'stack-stx',
   StackIncrease = 'stack-increase',
@@ -664,7 +673,7 @@ export enum PoxEventName {
   RevokeDelegateStx = 'revoke-delegate-stx',
 }
 
-export interface PoxEventBase {
+export interface Pox4EventBase {
   stacker: string;
   /** String-quoted unsigned integer */
   locked: string;
@@ -676,8 +685,8 @@ export interface PoxEventBase {
   pox_addr_raw: string | null;
 }
 
-export interface PoxEventHandleUnlock extends PoxEventBase {
-  name: PoxEventName.HandleUnlock;
+export interface Pox4EventHandleUnlock extends Pox4EventBase {
+  name: Pox4EventName.HandleUnlock;
   data: {
     /** String-quoted unsigned integer */
     first_cycle_locked: string;
@@ -686,8 +695,8 @@ export interface PoxEventHandleUnlock extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackStx extends PoxEventBase {
-  name: PoxEventName.StackStx;
+export interface Pox4EventStackStx extends Pox4EventBase {
+  name: Pox4EventName.StackStx;
   data: {
     /** String-quoted unsigned integer */
     lock_amount: string;
@@ -706,8 +715,8 @@ export interface PoxEventStackStx extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackIncrease extends PoxEventBase {
-  name: PoxEventName.StackIncrease;
+export interface Pox4EventStackIncrease extends Pox4EventBase {
+  name: Pox4EventName.StackIncrease;
   data: {
     /** String-quoted unsigned integer */
     increase_by: string;
@@ -722,8 +731,8 @@ export interface PoxEventStackIncrease extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackExtend extends PoxEventBase {
-  name: PoxEventName.StackExtend;
+export interface Pox4EventStackExtend extends Pox4EventBase {
+  name: Pox4EventName.StackExtend;
   data: {
     /** String-quoted unsigned integer */
     extend_count: string;
@@ -738,8 +747,8 @@ export interface PoxEventStackExtend extends PoxEventBase {
   };
 }
 
-export interface PoxEventDelegateStx extends PoxEventBase {
-  name: PoxEventName.DelegateStx;
+export interface Pox4EventDelegateStx extends Pox4EventBase {
+  name: Pox4EventName.DelegateStx;
   data: {
     /** String-quoted unsigned integer */
     amount_ustx: string;
@@ -753,8 +762,8 @@ export interface PoxEventDelegateStx extends PoxEventBase {
   };
 }
 
-export interface PoxEventDelegateStackStx extends PoxEventBase {
-  name: PoxEventName.DelegateStackStx;
+export interface Pox4EventDelegateStackStx extends Pox4EventBase {
+  name: Pox4EventName.DelegateStackStx;
   data: {
     /** String-quoted unsigned integer */
     lock_amount: string;
@@ -772,8 +781,8 @@ export interface PoxEventDelegateStackStx extends PoxEventBase {
   };
 }
 
-export interface PoxEventDelegateStackIncrease extends PoxEventBase {
-  name: PoxEventName.DelegateStackIncrease;
+export interface Pox4EventDelegateStackIncrease extends Pox4EventBase {
+  name: Pox4EventName.DelegateStackIncrease;
   data: {
     /** String-quoted unsigned integer */
     increase_by: string;
@@ -787,8 +796,8 @@ export interface PoxEventDelegateStackIncrease extends PoxEventBase {
   };
 }
 
-export interface PoxEventDelegateStackExtend extends PoxEventBase {
-  name: PoxEventName.DelegateStackExtend;
+export interface Pox4EventDelegateStackExtend extends Pox4EventBase {
+  name: Pox4EventName.DelegateStackExtend;
   data: {
     /** String-quoted unsigned integer */
     unlock_burn_height: string;
@@ -802,8 +811,8 @@ export interface PoxEventDelegateStackExtend extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackAggregationCommit extends PoxEventBase {
-  name: PoxEventName.StackAggregationCommit;
+export interface Pox4EventStackAggregationCommit extends Pox4EventBase {
+  name: Pox4EventName.StackAggregationCommit;
   data: {
     /** String-quoted unsigned integer */
     reward_cycle: string;
@@ -818,8 +827,8 @@ export interface PoxEventStackAggregationCommit extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackAggregationCommitIndexed extends PoxEventBase {
-  name: PoxEventName.StackAggregationCommitIndexed;
+export interface Pox4EventStackAggregationCommitIndexed extends Pox4EventBase {
+  name: Pox4EventName.StackAggregationCommitIndexed;
   data: {
     /** String-quoted unsigned integer */
     reward_cycle: string;
@@ -834,8 +843,8 @@ export interface PoxEventStackAggregationCommitIndexed extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackAggregationIncrease extends PoxEventBase {
-  name: PoxEventName.StackAggregationIncrease;
+export interface Pox4EventStackAggregationIncrease extends Pox4EventBase {
+  name: Pox4EventName.StackAggregationIncrease;
   data: {
     /** String-quoted unsigned integer */
     reward_cycle: string;
@@ -848,8 +857,8 @@ export interface PoxEventStackAggregationIncrease extends PoxEventBase {
   };
 }
 
-export interface PoxEventRevokeDelegateStx extends PoxEventBase {
-  name: PoxEventName.RevokeDelegateStx;
+export interface Pox4EventRevokeDelegateStx extends Pox4EventBase {
+  name: Pox4EventName.RevokeDelegateStx;
   data: {
     delegate_to: string;
     /** String-quoted unsigned integer or null */
@@ -859,16 +868,16 @@ export interface PoxEventRevokeDelegateStx extends PoxEventBase {
   };
 }
 
-export type DecodedPoxSyntheticEvent =
-  | PoxEventHandleUnlock
-  | PoxEventStackStx
-  | PoxEventStackIncrease
-  | PoxEventStackExtend
-  | PoxEventDelegateStx
-  | PoxEventDelegateStackStx
-  | PoxEventDelegateStackIncrease
-  | PoxEventDelegateStackExtend
-  | PoxEventStackAggregationCommit
-  | PoxEventStackAggregationCommitIndexed
-  | PoxEventStackAggregationIncrease
-  | PoxEventRevokeDelegateStx;
+export type Pox4Event =
+  | Pox4EventHandleUnlock
+  | Pox4EventStackStx
+  | Pox4EventStackIncrease
+  | Pox4EventStackExtend
+  | Pox4EventDelegateStx
+  | Pox4EventDelegateStackStx
+  | Pox4EventDelegateStackIncrease
+  | Pox4EventDelegateStackExtend
+  | Pox4EventStackAggregationCommit
+  | Pox4EventStackAggregationCommitIndexed
+  | Pox4EventStackAggregationIncrease
+  | Pox4EventRevokeDelegateStx;
