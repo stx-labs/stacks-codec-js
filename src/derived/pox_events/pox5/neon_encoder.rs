@@ -14,12 +14,15 @@ use super::super::neon_helpers::{set_bool, set_string, set_u128_array, set_u128_
 use super::types::*;
 
 /// Serialize a [`Pox5SyntheticEvent`] into a JS object of shape
-/// `{ name: string, data: { ... } }`.
+/// `{ pox_version: 'pox5', name: string, data: { ... } }`.
 pub fn encode_pox5_event<'a>(
     cx: &mut FunctionContext<'a>,
     event: &Pox5SyntheticEvent,
 ) -> JsResult<'a, JsObject> {
     let obj = cx.empty_object();
+
+    // Discriminant for JS callers — pair with `Pox5Event['pox_version']` in `index.ts`.
+    set_string(cx, &obj, "pox_version", "pox5")?;
 
     set_string(cx, &obj, "name", event.name.as_str())?;
 

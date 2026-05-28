@@ -13,6 +13,9 @@ pub fn encode_pox_event<'a>(
 ) -> JsResult<'a, JsObject> {
     let obj = cx.empty_object();
 
+    // Discriminant for JS callers — pair with `Pox4Event['pox_version']` in `index.ts`.
+    set_string(cx, &obj, "pox_version", "pox4")?;
+
     // Base fields
     set_string(cx, &obj, "stacker", &event.base.stacker)?;
     set_u128_string(cx, &obj, "locked", event.base.locked)?;

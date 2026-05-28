@@ -674,6 +674,12 @@ export enum Pox4EventName {
 }
 
 export interface Pox4EventBase {
+  /**
+   * Discriminant identifying the source PoX contract version. For events
+   * decoded from pox-2 / pox-3 / pox-4 this is always `'pox4'` — pox-5
+   * events come back as {@link Pox5Event} instead.
+   */
+  pox_version: 'pox4';
   stacker: string;
   /** String-quoted unsigned integer */
   locked: string;
@@ -881,3 +887,151 @@ export type Pox4Event =
   | Pox4EventStackAggregationCommitIndexed
   | Pox4EventStackAggregationIncrease
   | Pox4EventRevokeDelegateStx;
+
+// ============================================================================
+// PoX Synthetic Event Types — pox-5
+//
+// PoX-5 events are emitted by explicit `(print { topic: "...", ... })` calls
+// in the contract source, so each event arrives as a flat Clarity tuple with
+// a `topic` ASCII string plus event-specific data. This is structurally
+// different from pox-2/3/4, where the Stacks node synthesizes a
+// `Response(Ok({ stacker, locked, ..., name, data }))` per stacking call.
+//
+// On the JS side every pox-5 event has the same outer shape
+// `{ name: string, data: { ... } }`; the per-event `data` payloads are
+// modeled below.
+// ============================================================================
+
+export enum Pox5EventName {
+  AddToAllowlist = 'add-to-allowlist',
+  CalculateRewards = 'calculate-rewards',
+  BondDistribution = 'bond-distribution',
+  ClaimRewards = 'claim-rewards',
+  UpdateClaimableRewards = 'update-claimable-rewards',
+}
+
+export interface Pox5EventBase {
+  /**
+   * Discriminant identifying the source PoX contract version. For events
+   * decoded from pox-5 this is always `'pox5'` — earlier-contract events
+   * come back as {@link Pox4Event} instead.
+   */
+  pox_version: 'pox5';
+}
+
+export interface Pox5EventAddToAllowlist extends Pox5EventBase {
+  name: Pox5EventName.AddToAllowlist;
+  data: {
+    /** c32 principal string of the staker being added to a bond's allowlist. */
+    staker: string;
+    /** String-quoted unsigned integer */
+    max_sats: string;
+    /** String-quoted unsigned integer */
+    bond_index: string;
+  };
+}
+
+export interface Pox5EventCalculateRewards extends Pox5EventBase {
+  name: Pox5EventName.CalculateRewards;
+  data: {
+    /** Array of string-quoted unsigned integers (bond indices being settled) */
+    bond_periods: string[];
+    /** String-quoted unsigned integer */
+    calculation_height: string;
+    /** String-quoted unsigned integer */
+    remaining_rewards: string;
+    /** String-quoted unsigned integer */
+    accrued_rewards: string;
+    /** String-quoted unsigned integer */
+    stx_staker_rewards: string;
+    /** String-quoted unsigned integer */
+    stx_cycle: string;
+    /** String-quoted unsigned integer */
+    cycle_staked_ustx: string;
+    /** String-quoted unsigned integer */
+    next_rewards_per_ustx: string;
+  };
+}
+
+export interface Pox5EventBondDistribution extends Pox5EventBase {
+  name: Pox5EventName.BondDistribution;
+  data: {
+    /** String-quoted unsigned integer */
+    bond_index: string;
+    /** String-quoted unsigned integer */
+    target_yield: string;
+    /** String-quoted unsigned integer */
+    earned: string;
+  };
+}
+
+/** Sub-tuple emitted under `stx_rewards` in `claim-rewards` events. */
+export interface Pox5StxRewardsInfo {
+  /** String-quoted unsigned integer */
+  rewards_paid: string;
+  /** String-quoted unsigned integer */
+  rewards_pending: string;
+  /** String-quoted unsigned integer */
+  shares_staked: string;
+  /** String-quoted unsigned integer */
+  rewards_per_share: string;
+}
+
+/** One entry in the `bond_rewards` list of a `claim-rewards` event. */
+export interface Pox5BondRewardsInfo extends Pox5StxRewardsInfo {
+  /** String-quoted unsigned integer */
+  bond_index: string;
+}
+
+export interface Pox5EventClaimRewards extends Pox5EventBase {
+  name: Pox5EventName.ClaimRewards;
+  data: {
+    stx_rewards: Pox5StxRewardsInfo;
+    bond_rewards: Pox5BondRewardsInfo[];
+    /** String-quoted unsigned integer */
+    bond_totals: string;
+    /** String-quoted unsigned integer */
+    total_rewards: string;
+  };
+}
+
+export interface Pox5EventUpdateClaimableRewards extends Pox5EventBase {
+  name: Pox5EventName.UpdateClaimableRewards;
+  data: {
+    /** String-quoted unsigned integer */
+    rewards_pending: string;
+    /** String-quoted unsigned integer */
+    rewards_paid: string;
+    /** String-quoted unsigned integer (reward cycle id, or bond index when is_bond is true) */
+    index: string;
+    /** c32 principal string of the signer claiming rewards */
+    signer: string;
+    /** When true, `index` is a bond index; otherwise it's a reward-cycle id. */
+    is_bond: boolean;
+  };
+}
+
+export type Pox5Event =
+  | Pox5EventAddToAllowlist
+  | Pox5EventCalculateRewards
+  | Pox5EventBondDistribution
+  | Pox5EventClaimRewards
+  | Pox5EventUpdateClaimableRewards;
+
+// ============================================================================
+// PoX Synthetic Event — combined union
+// ============================================================================
+
+/**
+ * Any decoded PoX synthetic event, regardless of the source contract version.
+ *
+ * Two discriminants are available; use whichever fits the call site:
+ *
+ * - `event.pox_version` — `'pox4'` or `'pox5'`. Use this when you only care
+ *   which contract family the event came from (e.g. routing to a per-version
+ *   handler).
+ * - `event.name` — the specific event-name string literal. The pox-4 and
+ *   pox-5 name sets don't overlap, so a single switch on `name` narrows
+ *   all the way down to the per-event interface.
+ */
+export type PoxEvent = Pox4Event | Pox5Event;
