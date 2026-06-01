@@ -106,6 +106,15 @@ pub fn extract_optional_uint(val: Option<&UpstreamValue>) -> Result<Option<u128>
     }
 }
 
+/// Extract a buffer field as a `0x`-prefixed hex string. Errors if the value
+/// isn't a `Buffer`.
+pub fn extract_buffer_hex(val: &UpstreamValue) -> Result<String, String> {
+    match val {
+        UpstreamValue::Sequence(SequenceData::Buffer(b)) => Ok(encode_hex(&b.data).to_string()),
+        other => Err(format!("Expected Buffer, got {}", short_type_name(other))),
+    }
+}
+
 /// Extract a buffer as a hex string from:
 /// - `None` (field absent) → `Ok(None)`
 /// - `OptionalNone` → `Ok(None)`

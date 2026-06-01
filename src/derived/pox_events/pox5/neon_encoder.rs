@@ -1,16 +1,18 @@
 //! Neon (JS) serialization for decoded PoX-5 synthetic events.
 //!
-//! The JS-facing shape mirrors PoX-4: a top-level `{ name, data }` object,
-//! where `data` carries the event-specific fields. PoX-4's per-event base
-//! fields (`stacker` / `locked` / `balance` / `burnchain_unlock_height` /
-//! `pox_addr` / `pox_addr_raw`) are intentionally absent because PoX-5
-//! events don't carry them — only `add-to-allowlist` and
-//! `update-claimable-rewards` reference a principal, and they expose it
-//! inside `data` (`staker` and `signer` respectively).
+//! The JS-facing shape:
+//! `{ pox_version: 'pox5', name: <string>, data: { ... } }`.
+//!
+//! Field naming converts the contract's `kebab-case` keys to `snake_case`.
+//! All `u128` values are emitted as JS strings (numeric precision would be
+//! lost past 2^53). Principal fields are c32-encoded strings. Buffer fields
+//! are `0x`-prefixed hex strings.
 
 use neon::prelude::*;
 
-use super::super::neon_helpers::{set_bool, set_string, set_u128_array, set_u128_string};
+use super::super::neon_helpers::{
+    set_bool, set_optional_u128_string, set_string, set_u128_array, set_u128_string,
+};
 use super::types::*;
 
 /// Serialize a [`Pox5SyntheticEvent`] into a JS object of shape
@@ -39,6 +41,30 @@ fn encode_event_data<'a>(
     data: &Pox5EventData,
 ) -> NeonResult<()> {
     match data {
+        Pox5EventData::SetupBond {
+            bond_index,
+            target_rate,
+            stx_value_ratio,
+            min_ustx_ratio,
+            early_unlock_bytes,
+            early_unlock_admin,
+            first_reward_cycle,
+            bond_start_height,
+            unlock_cycle,
+            unlock_burn_height,
+        } => {
+            set_u128_string(cx, obj, "bond_index", *bond_index)?;
+            set_u128_string(cx, obj, "target_rate", *target_rate)?;
+            set_u128_string(cx, obj, "stx_value_ratio", *stx_value_ratio)?;
+            set_u128_string(cx, obj, "min_ustx_ratio", *min_ustx_ratio)?;
+            set_string(cx, obj, "early_unlock_bytes", early_unlock_bytes)?;
+            set_string(cx, obj, "early_unlock_admin", early_unlock_admin)?;
+            set_u128_string(cx, obj, "first_reward_cycle", *first_reward_cycle)?;
+            set_u128_string(cx, obj, "bond_start_height", *bond_start_height)?;
+            set_u128_string(cx, obj, "unlock_cycle", *unlock_cycle)?;
+            set_u128_string(cx, obj, "unlock_burn_height", *unlock_burn_height)?;
+        }
+
         Pox5EventData::AddToAllowlist {
             staker,
             max_sats,
@@ -48,11 +74,147 @@ fn encode_event_data<'a>(
             set_u128_string(cx, obj, "max_sats", *max_sats)?;
             set_u128_string(cx, obj, "bond_index", *bond_index)?;
         }
+
+        Pox5EventData::RegisterForBond {
+            signer,
+            staker,
+            amount_ustx,
+            sats_total,
+            bond_index,
+            first_reward_cycle,
+            unlock_burn_height,
+            unlock_cycle,
+            is_l1_lock,
+        } => {
+            set_string(cx, obj, "signer", signer)?;
+            set_string(cx, obj, "staker", staker)?;
+            set_u128_string(cx, obj, "amount_ustx", *amount_ustx)?;
+            set_u128_string(cx, obj, "sats_total", *sats_total)?;
+            set_u128_string(cx, obj, "bond_index", *bond_index)?;
+            set_u128_string(cx, obj, "first_reward_cycle", *first_reward_cycle)?;
+            set_u128_string(cx, obj, "unlock_burn_height", *unlock_burn_height)?;
+            set_u128_string(cx, obj, "unlock_cycle", *unlock_cycle)?;
+            set_bool(cx, obj, "is_l1_lock", *is_l1_lock)?;
+        }
+
+        Pox5EventData::UpdateBondRegistration {
+            staker,
+            signer,
+            old_signer,
+            bond_index,
+            amount_ustx,
+            amount_sats,
+            first_reward_cycle,
+            num_cycles,
+            is_l1_lock,
+        } => {
+            set_string(cx, obj, "staker", staker)?;
+            set_string(cx, obj, "signer", signer)?;
+            set_string(cx, obj, "old_signer", old_signer)?;
+            set_u128_string(cx, obj, "bond_index", *bond_index)?;
+            set_u128_string(cx, obj, "amount_ustx", *amount_ustx)?;
+            set_u128_string(cx, obj, "amount_sats", *amount_sats)?;
+            set_u128_string(cx, obj, "first_reward_cycle", *first_reward_cycle)?;
+            set_u128_string(cx, obj, "num_cycles", *num_cycles)?;
+            set_bool(cx, obj, "is_l1_lock", *is_l1_lock)?;
+        }
+
+        Pox5EventData::RegisterSigner { signer, signer_key } => {
+            set_string(cx, obj, "signer", signer)?;
+            set_string(cx, obj, "signer_key", signer_key)?;
+        }
+
+        Pox5EventData::Stake {
+            signer,
+            staker,
+            amount_ustx,
+            num_cycles,
+            first_reward_cycle,
+            unlock_burn_height,
+            unlock_cycle,
+        } => {
+            set_string(cx, obj, "signer", signer)?;
+            set_string(cx, obj, "staker", staker)?;
+            set_u128_string(cx, obj, "amount_ustx", *amount_ustx)?;
+            set_u128_string(cx, obj, "num_cycles", *num_cycles)?;
+            set_u128_string(cx, obj, "first_reward_cycle", *first_reward_cycle)?;
+            set_u128_string(cx, obj, "unlock_burn_height", *unlock_burn_height)?;
+            set_u128_string(cx, obj, "unlock_cycle", *unlock_cycle)?;
+        }
+
+        Pox5EventData::StakeUpdate {
+            unlock_burn_height,
+            staker,
+            signer,
+            old_signer,
+            prev_unlock_height,
+            unlock_cycle,
+            num_cycles,
+            amount_ustx,
+            amount_increase,
+            cycles_to_extend,
+        } => {
+            set_u128_string(cx, obj, "unlock_burn_height", *unlock_burn_height)?;
+            set_string(cx, obj, "staker", staker)?;
+            set_string(cx, obj, "signer", signer)?;
+            set_string(cx, obj, "old_signer", old_signer)?;
+            set_u128_string(cx, obj, "prev_unlock_height", *prev_unlock_height)?;
+            set_u128_string(cx, obj, "unlock_cycle", *unlock_cycle)?;
+            set_u128_string(cx, obj, "num_cycles", *num_cycles)?;
+            set_u128_string(cx, obj, "amount_ustx", *amount_ustx)?;
+            set_u128_string(cx, obj, "amount_increase", *amount_increase)?;
+            set_u128_string(cx, obj, "cycles_to_extend", *cycles_to_extend)?;
+        }
+
+        Pox5EventData::AnnounceL1EarlyExit {
+            staker,
+            signer,
+            bond_index,
+            amount_sats_released,
+        } => {
+            set_string(cx, obj, "staker", staker)?;
+            set_string(cx, obj, "signer", signer)?;
+            set_u128_string(cx, obj, "bond_index", *bond_index)?;
+            set_u128_string(cx, obj, "amount_sats_released", *amount_sats_released)?;
+        }
+
+        Pox5EventData::UnstakeSbtc {
+            staker,
+            signer,
+            bond_index,
+            amount_withdrawn_sats,
+            new_amount_sats,
+        } => {
+            set_string(cx, obj, "staker", staker)?;
+            set_string(cx, obj, "signer", signer)?;
+            set_u128_string(cx, obj, "bond_index", *bond_index)?;
+            set_u128_string(cx, obj, "amount_withdrawn_sats", *amount_withdrawn_sats)?;
+            set_u128_string(cx, obj, "new_amount_sats", *new_amount_sats)?;
+        }
+
+        Pox5EventData::Unstake {
+            staker,
+            signer,
+            amount_ustx,
+            first_reward_cycle,
+            unlock_cycle,
+            unlock_burn_height,
+        } => {
+            set_string(cx, obj, "staker", staker)?;
+            set_string(cx, obj, "signer", signer)?;
+            set_u128_string(cx, obj, "amount_ustx", *amount_ustx)?;
+            set_u128_string(cx, obj, "first_reward_cycle", *first_reward_cycle)?;
+            set_u128_string(cx, obj, "unlock_cycle", *unlock_cycle)?;
+            set_u128_string(cx, obj, "unlock_burn_height", *unlock_burn_height)?;
+        }
+
         Pox5EventData::CalculateRewards {
             bond_periods,
             calculation_height,
             remaining_rewards,
             accrued_rewards,
+            new_reserve,
+            stranded_staker_cut,
             stx_staker_rewards,
             stx_cycle,
             cycle_staked_ustx,
@@ -62,11 +224,14 @@ fn encode_event_data<'a>(
             set_u128_string(cx, obj, "calculation_height", *calculation_height)?;
             set_u128_string(cx, obj, "remaining_rewards", *remaining_rewards)?;
             set_u128_string(cx, obj, "accrued_rewards", *accrued_rewards)?;
+            set_optional_u128_string(cx, obj, "new_reserve", *new_reserve)?;
+            set_optional_u128_string(cx, obj, "stranded_staker_cut", *stranded_staker_cut)?;
             set_u128_string(cx, obj, "stx_staker_rewards", *stx_staker_rewards)?;
             set_u128_string(cx, obj, "stx_cycle", *stx_cycle)?;
             set_u128_string(cx, obj, "cycle_staked_ustx", *cycle_staked_ustx)?;
             set_u128_string(cx, obj, "next_rewards_per_ustx", *next_rewards_per_ustx)?;
         }
+
         Pox5EventData::BondDistribution {
             bond_index,
             target_yield,
@@ -76,6 +241,7 @@ fn encode_event_data<'a>(
             set_u128_string(cx, obj, "target_yield", *target_yield)?;
             set_u128_string(cx, obj, "earned", *earned)?;
         }
+
         Pox5EventData::ClaimRewards {
             stx_rewards,
             bond_rewards,
@@ -83,24 +249,20 @@ fn encode_event_data<'a>(
             total_rewards,
         } => {
             let stx_obj = cx.empty_object();
-            set_u128_string(cx, &stx_obj, "rewards_paid", stx_rewards.rewards_paid)?;
-            set_u128_string(cx, &stx_obj, "rewards_pending", stx_rewards.rewards_pending)?;
-            set_u128_string(cx, &stx_obj, "shares_staked", stx_rewards.shares_staked)?;
+            set_u128_string(cx, &stx_obj, "earned", stx_rewards.earned)?;
             set_u128_string(
                 cx,
                 &stx_obj,
-                "rewards_per_share",
-                stx_rewards.rewards_per_share,
+                "rewards_per_token",
+                stx_rewards.rewards_per_token,
             )?;
             obj.set(cx, "stx_rewards", stx_obj)?;
 
             let bond_arr = JsArray::new(cx, bond_rewards.len());
             for (i, entry) in bond_rewards.iter().enumerate() {
                 let entry_obj = cx.empty_object();
-                set_u128_string(cx, &entry_obj, "rewards_paid", entry.rewards_paid)?;
-                set_u128_string(cx, &entry_obj, "rewards_pending", entry.rewards_pending)?;
-                set_u128_string(cx, &entry_obj, "shares_staked", entry.shares_staked)?;
-                set_u128_string(cx, &entry_obj, "rewards_per_share", entry.rewards_per_share)?;
+                set_u128_string(cx, &entry_obj, "earned", entry.earned)?;
+                set_u128_string(cx, &entry_obj, "rewards_per_token", entry.rewards_per_token)?;
                 set_u128_string(cx, &entry_obj, "bond_index", entry.bond_index)?;
                 bond_arr.set(cx, i as u32, entry_obj)?;
             }
@@ -108,19 +270,6 @@ fn encode_event_data<'a>(
 
             set_u128_string(cx, obj, "bond_totals", *bond_totals)?;
             set_u128_string(cx, obj, "total_rewards", *total_rewards)?;
-        }
-        Pox5EventData::UpdateClaimableRewards {
-            rewards_pending,
-            rewards_paid,
-            index,
-            signer,
-            is_bond,
-        } => {
-            set_u128_string(cx, obj, "rewards_pending", *rewards_pending)?;
-            set_u128_string(cx, obj, "rewards_paid", *rewards_paid)?;
-            set_u128_string(cx, obj, "index", *index)?;
-            set_string(cx, obj, "signer", signer)?;
-            set_bool(cx, obj, "is_bond", *is_bond)?;
         }
     }
     Ok(())
