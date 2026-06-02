@@ -1,5 +1,8 @@
 use neon::prelude::*;
 
+use super::super::neon_helpers::{
+    set_optional_string, set_optional_u128_string, set_string, set_u128_string,
+};
 use super::types::*;
 
 /// Serialize a `PoxSyntheticEvent` into a Neon JS object.
@@ -9,6 +12,9 @@ pub fn encode_pox_event<'a>(
     event: &PoxSyntheticEvent,
 ) -> JsResult<'a, JsObject> {
     let obj = cx.empty_object();
+
+    // Discriminant for JS callers — pair with `Pox4Event['pox_version']` in `index.ts`.
+    set_string(cx, &obj, "pox_version", "pox4")?;
 
     // Base fields
     set_string(cx, &obj, "stacker", &event.base.stacker)?;
@@ -191,68 +197,6 @@ fn encode_event_data<'a>(
             set_string(cx, obj, "delegate_to", delegate_to)?;
             set_optional_u128_string(cx, obj, "end_cycle_id", *end_cycle_id)?;
             set_optional_u128_string(cx, obj, "start_cycle_id", *start_cycle_id)?;
-        }
-    }
-    Ok(())
-}
-
-// ─── Neon helper functions ──────────────────────────────────────────────────
-
-fn set_string<'a>(
-    cx: &mut FunctionContext<'a>,
-    obj: &Handle<'a, JsObject>,
-    key: &str,
-    value: &str,
-) -> NeonResult<()> {
-    let val = cx.string(value);
-    obj.set(cx, key, val)?;
-    Ok(())
-}
-
-fn set_u128_string<'a>(
-    cx: &mut FunctionContext<'a>,
-    obj: &Handle<'a, JsObject>,
-    key: &str,
-    value: u128,
-) -> NeonResult<()> {
-    let val = cx.string(value.to_string());
-    obj.set(cx, key, val)?;
-    Ok(())
-}
-
-fn set_optional_string<'a>(
-    cx: &mut FunctionContext<'a>,
-    obj: &Handle<'a, JsObject>,
-    key: &str,
-    value: Option<&str>,
-) -> NeonResult<()> {
-    match value {
-        Some(s) => {
-            let val = cx.string(s);
-            obj.set(cx, key, val)?;
-        }
-        None => {
-            let val = cx.null();
-            obj.set(cx, key, val)?;
-        }
-    }
-    Ok(())
-}
-
-fn set_optional_u128_string<'a>(
-    cx: &mut FunctionContext<'a>,
-    obj: &Handle<'a, JsObject>,
-    key: &str,
-    value: Option<u128>,
-) -> NeonResult<()> {
-    match value {
-        Some(v) => {
-            let val = cx.string(v.to_string());
-            obj.set(cx, key, val)?;
-        }
-        None => {
-            let val = cx.null();
-            obj.set(cx, key, val)?;
         }
     }
     Ok(())
