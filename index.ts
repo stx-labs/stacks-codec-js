@@ -1121,17 +1121,8 @@ export interface Pox5EventUnstake extends Pox5EventBase {
 }
 
 /**
- * Logged by `calculate-rewards`. The contract emits this topic **twice** per
- * call: a phase-1 (pre-distribution) print carrying `stranded_staker_cut`,
- * and a phase-2 (post-distribution) print carrying `new_reserve`. Exactly
- * one of those two fields is populated per event; the other is `null`.
- *
- * Phase-1 fires before reserve and accounting state are updated; useful for
- * inspecting whether the staker cut was folded into the reserve because no
- * STX was staked.
- *
- * Phase-2 fires after state is committed and matches the value returned to
- * the caller.
+ * Logged once per `calculate-rewards` call, after all per-bond distributions
+ * have been folded and the STX reward cycle accounting has been committed.
  */
 export interface Pox5EventCalculateRewards extends Pox5EventBase {
   name: Pox5EventName.CalculateRewards;
@@ -1140,29 +1131,24 @@ export interface Pox5EventCalculateRewards extends Pox5EventBase {
     bond_periods: string[];
     /** String-quoted unsigned integer */
     calculation_height: string;
-    /** String-quoted unsigned integer */
-    remaining_rewards: string;
-    /** String-quoted unsigned integer */
-    accrued_rewards: string;
-    /**
-     * Phase-2 only. String-quoted unsigned integer — portion of accrued
-     * rewards retained in the reserve. `null` on the phase-1 event.
-     */
-    new_reserve: string | null;
-    /**
-     * Phase-1 only. String-quoted unsigned integer — the would-be STX
-     * staker cut that gets folded into the reserve when no STX is staked
-     * for the cycle. `null` on the phase-2 event.
-     */
-    stranded_staker_cut: string | null;
-    /** String-quoted unsigned integer */
-    stx_staker_rewards: string;
+    /** String-quoted unsigned integer — total new rewards accrued since the last calculation. */
+    gross_accrued_rewards: string;
+    /** String-quoted unsigned integer — portion of `gross_accrued_rewards` paid out to bonds. */
+    total_bond_rewards: string;
+    /** String-quoted unsigned integer — amount added to the reserve this calculation. */
+    reserve_deposit: string;
+    /** String-quoted unsigned integer — reserve balance after `reserve_deposit` was applied. */
+    reserve_balance: string;
     /** String-quoted unsigned integer */
     stx_cycle: string;
+    /** String-quoted unsigned integer — rewards allocated to STX stakers for the cycle. */
+    total_stx_staker_rewards: string;
     /** String-quoted unsigned integer */
     cycle_staked_ustx: string;
-    /** String-quoted unsigned integer */
-    next_rewards_per_ustx: string;
+    /** String-quoted unsigned integer — per-uSTX rewards accrued this calculation (zero when no STX is staked). */
+    accrued_rewards_per_ustx: string;
+    /** String-quoted unsigned integer — running per-uSTX reward total for the cycle after this calculation. */
+    cumulative_rewards_per_ustx: string;
   };
 }
 
@@ -1173,8 +1159,14 @@ export interface Pox5EventBondDistribution extends Pox5EventBase {
     bond_index: string;
     /** String-quoted unsigned integer */
     target_yield: string;
+    /** String-quoted unsigned integer — rewards earned by this bond this calculation. */
+    bond_rewards: string;
     /** String-quoted unsigned integer */
-    earned: string;
+    bond_staked_sats: string;
+    /** String-quoted unsigned integer — per-sat rewards accrued this calculation. */
+    accrued_rewards_per_sat: string;
+    /** String-quoted unsigned integer — running per-sat reward total for the bond after this calculation. */
+    cumulative_rewards_per_sat: string;
   };
 }
 
