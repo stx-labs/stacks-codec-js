@@ -196,33 +196,32 @@ pub enum Pox5EventData {
         unlock_burn_height: u128,
     },
 
-    /// Logged by `calculate-rewards`. The contract emits this topic **twice**
-    /// per call:
-    ///
-    /// - Phase 1 (pre-distribution): carries `stranded_staker_cut` but no
-    ///   `new_reserve`. Fired before the reserve and accounting state are
-    ///   updated; useful for inspecting whether the staker cut got folded
-    ///   into the reserve because no STX was staked.
-    /// - Phase 2 (post-distribution): carries `new_reserve` but no
-    ///   `stranded_staker_cut`. Fired after state is committed and matches
-    ///   the value returned to the caller.
-    ///
-    /// To keep a single Rust/JS variant for both phases, the two
-    /// phase-specific fields are surfaced as optionals — exactly one will be
-    /// `Some` per event.
+    /// Logged once per `calculate-rewards` call, after all per-bond
+    /// distributions have been folded and the STX reward cycle accounting
+    /// has been committed.
     CalculateRewards {
         bond_periods: Vec<u128>,
         calculation_height: u128,
-        remaining_rewards: u128,
-        accrued_rewards: u128,
-        /// Phase-2 only.
-        new_reserve: Option<u128>,
-        /// Phase-1 only.
-        stranded_staker_cut: Option<u128>,
-        stx_staker_rewards: u128,
+        /// Total new rewards accrued since the last calculation.
+        gross_accrued_rewards: u128,
+        /// Portion of `gross_accrued_rewards` paid out to bonds
+        /// (`gross_accrued_rewards - remaining`).
+        total_bond_rewards: u128,
+        /// Amount added to the reserve this calculation (reserve cut, plus
+        /// the STX staker cut when no STX is staked for the cycle).
+        reserve_deposit: u128,
+        /// Reserve balance after `reserve_deposit` was applied.
+        reserve_balance: u128,
         stx_cycle: u128,
+        /// Rewards allocated to STX stakers for the cycle (before the
+        /// no-stakers fold into the reserve).
+        total_stx_staker_rewards: u128,
         cycle_staked_ustx: u128,
-        next_rewards_per_ustx: u128,
+        /// Per-uSTX rewards accrued this calculation (zero when no STX is
+        /// staked).
+        accrued_rewards_per_ustx: u128,
+        /// Running per-uSTX reward total for the cycle after this calculation.
+        cumulative_rewards_per_ustx: u128,
     },
 
     /// Logged by `calculate-bond-rewards` for each bond period processed
@@ -230,7 +229,13 @@ pub enum Pox5EventData {
     BondDistribution {
         bond_index: u128,
         target_yield: u128,
-        earned: u128,
+        /// Rewards earned by this bond this calculation.
+        bond_rewards: u128,
+        bond_staked_sats: u128,
+        /// Per-sat rewards accrued this calculation.
+        accrued_rewards_per_sat: u128,
+        /// Running per-sat reward total for the bond after this calculation.
+        cumulative_rewards_per_sat: u128,
     },
 
     /// Logged by `claim-rewards` when a signer claims accrued rewards.

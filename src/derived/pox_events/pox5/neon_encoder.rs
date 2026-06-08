@@ -10,9 +10,7 @@
 
 use neon::prelude::*;
 
-use super::super::neon_helpers::{
-    set_bool, set_optional_u128_string, set_string, set_u128_array, set_u128_string,
-};
+use super::super::neon_helpers::{set_bool, set_string, set_u128_array, set_u128_string};
 use super::types::*;
 
 /// Serialize a [`Pox5SyntheticEvent`] into a JS object of shape
@@ -211,35 +209,63 @@ fn encode_event_data<'a>(
         Pox5EventData::CalculateRewards {
             bond_periods,
             calculation_height,
-            remaining_rewards,
-            accrued_rewards,
-            new_reserve,
-            stranded_staker_cut,
-            stx_staker_rewards,
+            gross_accrued_rewards,
+            total_bond_rewards,
+            reserve_deposit,
+            reserve_balance,
             stx_cycle,
+            total_stx_staker_rewards,
             cycle_staked_ustx,
-            next_rewards_per_ustx,
+            accrued_rewards_per_ustx,
+            cumulative_rewards_per_ustx,
         } => {
             set_u128_array(cx, obj, "bond_periods", bond_periods)?;
             set_u128_string(cx, obj, "calculation_height", *calculation_height)?;
-            set_u128_string(cx, obj, "remaining_rewards", *remaining_rewards)?;
-            set_u128_string(cx, obj, "accrued_rewards", *accrued_rewards)?;
-            set_optional_u128_string(cx, obj, "new_reserve", *new_reserve)?;
-            set_optional_u128_string(cx, obj, "stranded_staker_cut", *stranded_staker_cut)?;
-            set_u128_string(cx, obj, "stx_staker_rewards", *stx_staker_rewards)?;
+            set_u128_string(cx, obj, "gross_accrued_rewards", *gross_accrued_rewards)?;
+            set_u128_string(cx, obj, "total_bond_rewards", *total_bond_rewards)?;
+            set_u128_string(cx, obj, "reserve_deposit", *reserve_deposit)?;
+            set_u128_string(cx, obj, "reserve_balance", *reserve_balance)?;
             set_u128_string(cx, obj, "stx_cycle", *stx_cycle)?;
+            set_u128_string(
+                cx,
+                obj,
+                "total_stx_staker_rewards",
+                *total_stx_staker_rewards,
+            )?;
             set_u128_string(cx, obj, "cycle_staked_ustx", *cycle_staked_ustx)?;
-            set_u128_string(cx, obj, "next_rewards_per_ustx", *next_rewards_per_ustx)?;
+            set_u128_string(
+                cx,
+                obj,
+                "accrued_rewards_per_ustx",
+                *accrued_rewards_per_ustx,
+            )?;
+            set_u128_string(
+                cx,
+                obj,
+                "cumulative_rewards_per_ustx",
+                *cumulative_rewards_per_ustx,
+            )?;
         }
 
         Pox5EventData::BondDistribution {
             bond_index,
             target_yield,
-            earned,
+            bond_rewards,
+            bond_staked_sats,
+            accrued_rewards_per_sat,
+            cumulative_rewards_per_sat,
         } => {
             set_u128_string(cx, obj, "bond_index", *bond_index)?;
             set_u128_string(cx, obj, "target_yield", *target_yield)?;
-            set_u128_string(cx, obj, "earned", *earned)?;
+            set_u128_string(cx, obj, "bond_rewards", *bond_rewards)?;
+            set_u128_string(cx, obj, "bond_staked_sats", *bond_staked_sats)?;
+            set_u128_string(cx, obj, "accrued_rewards_per_sat", *accrued_rewards_per_sat)?;
+            set_u128_string(
+                cx,
+                obj,
+                "cumulative_rewards_per_sat",
+                *cumulative_rewards_per_sat,
+            )?;
         }
 
         Pox5EventData::ClaimRewards {

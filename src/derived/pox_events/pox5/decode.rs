@@ -10,7 +10,7 @@ use clarity::vm::types::Value as UpstreamValue;
 
 use super::super::clarity_helpers::{
     clarity_principal_to_string, extract_ascii_string, extract_bool, extract_buffer_hex,
-    extract_list, extract_tuple, extract_uint, get_tuple_field, tuple_get,
+    extract_list, extract_tuple, extract_uint, get_tuple_field,
 };
 use super::types::*;
 
@@ -147,28 +147,39 @@ pub fn decode_pox5_synthetic_event(
         Pox5EventName::CalculateRewards => Pox5EventData::CalculateRewards {
             bond_periods: extract_list(get_tuple_field(tuple, "bond-periods")?, extract_uint)?,
             calculation_height: extract_uint(get_tuple_field(tuple, "calculation-height")?)?,
-            remaining_rewards: extract_uint(get_tuple_field(tuple, "remaining-rewards")?)?,
-            accrued_rewards: extract_uint(get_tuple_field(tuple, "accrued-rewards")?)?,
-            // The contract emits `calculate-rewards` twice per call (see the
-            // doc on the variant). The two prints share the same topic but
-            // differ in which of these two fields they carry, so use
-            // tuple_get to map an absent field to None rather than failing.
-            new_reserve: tuple_get(tuple, "new-reserve")
-                .map(extract_uint)
-                .transpose()?,
-            stranded_staker_cut: tuple_get(tuple, "stranded-staker-cut")
-                .map(extract_uint)
-                .transpose()?,
-            stx_staker_rewards: extract_uint(get_tuple_field(tuple, "stx-staker-rewards")?)?,
+            gross_accrued_rewards: extract_uint(get_tuple_field(tuple, "gross-accrued-rewards")?)?,
+            total_bond_rewards: extract_uint(get_tuple_field(tuple, "total-bond-rewards")?)?,
+            reserve_deposit: extract_uint(get_tuple_field(tuple, "reserve-deposit")?)?,
+            reserve_balance: extract_uint(get_tuple_field(tuple, "reserve-balance")?)?,
             stx_cycle: extract_uint(get_tuple_field(tuple, "stx-cycle")?)?,
+            total_stx_staker_rewards: extract_uint(get_tuple_field(
+                tuple,
+                "total-stx-staker-rewards",
+            )?)?,
             cycle_staked_ustx: extract_uint(get_tuple_field(tuple, "cycle-staked-ustx")?)?,
-            next_rewards_per_ustx: extract_uint(get_tuple_field(tuple, "next-rewards-per-ustx")?)?,
+            accrued_rewards_per_ustx: extract_uint(get_tuple_field(
+                tuple,
+                "accrued-rewards-per-ustx",
+            )?)?,
+            cumulative_rewards_per_ustx: extract_uint(get_tuple_field(
+                tuple,
+                "cumulative-rewards-per-ustx",
+            )?)?,
         },
 
         Pox5EventName::BondDistribution => Pox5EventData::BondDistribution {
             bond_index: extract_uint(get_tuple_field(tuple, "bond-index")?)?,
             target_yield: extract_uint(get_tuple_field(tuple, "target-yield")?)?,
-            earned: extract_uint(get_tuple_field(tuple, "earned")?)?,
+            bond_rewards: extract_uint(get_tuple_field(tuple, "bond-rewards")?)?,
+            bond_staked_sats: extract_uint(get_tuple_field(tuple, "bond-staked-sats")?)?,
+            accrued_rewards_per_sat: extract_uint(get_tuple_field(
+                tuple,
+                "accrued-rewards-per-sat",
+            )?)?,
+            cumulative_rewards_per_sat: extract_uint(get_tuple_field(
+                tuple,
+                "cumulative-rewards-per-sat",
+            )?)?,
         },
 
         Pox5EventName::ClaimRewards => Pox5EventData::ClaimRewards {
@@ -572,67 +583,43 @@ mod tests {
         }
     }
 
-    /// Phase-2 (post-distribution) `calculate-rewards`: carries `new-reserve`,
-    /// omits `stranded-staker-cut`.
     #[test]
-    fn calculate_rewards_phase2_decodes() {
+    fn calculate_rewards_decodes() {
         let cv = make_tuple(vec![
             ("topic", ascii("calculate-rewards")),
             ("bond-periods", make_uint_list(&[10, 11, 12])),
             ("calculation-height", UpstreamValue::UInt(500_000)),
-            ("remaining-rewards", UpstreamValue::UInt(10_000)),
-            ("accrued-rewards", UpstreamValue::UInt(20_000)),
-            ("new-reserve", UpstreamValue::UInt(2_000)),
-            ("stx-staker-rewards", UpstreamValue::UInt(5_000)),
+            ("gross-accrued-rewards", UpstreamValue::UInt(20_000)),
+            ("total-bond-rewards", UpstreamValue::UInt(8_000)),
+            ("reserve-deposit", UpstreamValue::UInt(2_000)),
+            ("reserve-balance", UpstreamValue::UInt(50_000)),
             ("stx-cycle", UpstreamValue::UInt(42)),
+            ("total-stx-staker-rewards", UpstreamValue::UInt(5_000)),
             ("cycle-staked-ustx", UpstreamValue::UInt(1_000_000_000)),
-            ("next-rewards-per-ustx", UpstreamValue::UInt(7)),
+            ("accrued-rewards-per-ustx", UpstreamValue::UInt(7)),
+            ("cumulative-rewards-per-ustx", UpstreamValue::UInt(107)),
         ]);
         let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
         match event.data {
             Pox5EventData::CalculateRewards {
                 bond_periods,
-                new_reserve,
-                stranded_staker_cut,
-                accrued_rewards,
+                gross_accrued_rewards,
+                total_bond_rewards,
+                reserve_deposit,
+                reserve_balance,
+                total_stx_staker_rewards,
+                accrued_rewards_per_ustx,
+                cumulative_rewards_per_ustx,
                 ..
             } => {
                 assert_eq!(bond_periods, vec![10, 11, 12]);
-                assert_eq!(new_reserve, Some(2_000));
-                assert_eq!(stranded_staker_cut, None);
-                assert_eq!(accrued_rewards, 20_000);
-            }
-            _ => panic!("wrong variant"),
-        }
-    }
-
-    /// Phase-1 (pre-distribution) `calculate-rewards`: carries
-    /// `stranded-staker-cut`, omits `new-reserve`.
-    #[test]
-    fn calculate_rewards_phase1_decodes() {
-        let cv = make_tuple(vec![
-            ("topic", ascii("calculate-rewards")),
-            ("bond-periods", make_uint_list(&[10, 11, 12])),
-            ("calculation-height", UpstreamValue::UInt(500_000)),
-            ("remaining-rewards", UpstreamValue::UInt(10_000)),
-            ("accrued-rewards", UpstreamValue::UInt(20_000)),
-            ("stx-staker-rewards", UpstreamValue::UInt(5_000)),
-            ("stx-cycle", UpstreamValue::UInt(42)),
-            ("cycle-staked-ustx", UpstreamValue::UInt(0)),
-            ("next-rewards-per-ustx", UpstreamValue::UInt(0)),
-            ("stranded-staker-cut", UpstreamValue::UInt(5_000)),
-        ]);
-        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
-        match event.data {
-            Pox5EventData::CalculateRewards {
-                new_reserve,
-                stranded_staker_cut,
-                cycle_staked_ustx,
-                ..
-            } => {
-                assert_eq!(new_reserve, None);
-                assert_eq!(stranded_staker_cut, Some(5_000));
-                assert_eq!(cycle_staked_ustx, 0);
+                assert_eq!(gross_accrued_rewards, 20_000);
+                assert_eq!(total_bond_rewards, 8_000);
+                assert_eq!(reserve_deposit, 2_000);
+                assert_eq!(reserve_balance, 50_000);
+                assert_eq!(total_stx_staker_rewards, 5_000);
+                assert_eq!(accrued_rewards_per_ustx, 7);
+                assert_eq!(cumulative_rewards_per_ustx, 107);
             }
             _ => panic!("wrong variant"),
         }
@@ -644,18 +631,27 @@ mod tests {
             ("topic", ascii("bond-distribution")),
             ("bond-index", UpstreamValue::UInt(7)),
             ("target-yield", UpstreamValue::UInt(100)),
-            ("earned", UpstreamValue::UInt(95)),
+            ("bond-rewards", UpstreamValue::UInt(95)),
+            ("bond-staked-sats", UpstreamValue::UInt(1_000_000)),
+            ("accrued-rewards-per-sat", UpstreamValue::UInt(3)),
+            ("cumulative-rewards-per-sat", UpstreamValue::UInt(303)),
         ]);
         let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
         match event.data {
             Pox5EventData::BondDistribution {
                 bond_index,
                 target_yield,
-                earned,
+                bond_rewards,
+                bond_staked_sats,
+                accrued_rewards_per_sat,
+                cumulative_rewards_per_sat,
             } => {
                 assert_eq!(bond_index, 7);
                 assert_eq!(target_yield, 100);
-                assert_eq!(earned, 95);
+                assert_eq!(bond_rewards, 95);
+                assert_eq!(bond_staked_sats, 1_000_000);
+                assert_eq!(accrued_rewards_per_sat, 3);
+                assert_eq!(cumulative_rewards_per_sat, 303);
             }
             _ => panic!("wrong variant"),
         }
