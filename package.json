@@ -1,6 +1,6 @@
 {
   "name": "@stacks/codec",
-  "version": "2.0.0-pox5.2",
+  "version": "2.0.0-pox5.3",
   "author": "Stacks Labs",
   "license": "GPL-3.0",
   "description": "Encoding & decoding functions for the Stacks blockchain exposed as a fast native Node.js addon",
