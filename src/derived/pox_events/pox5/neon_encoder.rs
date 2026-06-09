@@ -10,7 +10,9 @@
 
 use neon::prelude::*;
 
-use super::super::neon_helpers::{set_bool, set_string, set_u128_array, set_u128_string};
+use super::super::neon_helpers::{
+    set_bool, set_optional_u128_string, set_string, set_u128_array, set_u128_string,
+};
 use super::types::*;
 
 /// Serialize a [`Pox5SyntheticEvent`] into a JS object of shape
@@ -39,13 +41,20 @@ fn encode_event_data<'a>(
     data: &Pox5EventData,
 ) -> NeonResult<()> {
     match data {
+        Pox5EventData::SetBondAdmin {
+            old_admin,
+            new_admin,
+        } => {
+            set_string(cx, obj, "old_admin", old_admin)?;
+            set_string(cx, obj, "new_admin", new_admin)?;
+        }
+
         Pox5EventData::SetupBond {
             bond_index,
             target_rate,
             stx_value_ratio,
             min_ustx_ratio,
             early_unlock_bytes,
-            early_unlock_admin,
             first_reward_cycle,
             bond_start_height,
             unlock_cycle,
@@ -56,7 +65,6 @@ fn encode_event_data<'a>(
             set_u128_string(cx, obj, "stx_value_ratio", *stx_value_ratio)?;
             set_u128_string(cx, obj, "min_ustx_ratio", *min_ustx_ratio)?;
             set_string(cx, obj, "early_unlock_bytes", early_unlock_bytes)?;
-            set_string(cx, obj, "early_unlock_admin", early_unlock_admin)?;
             set_u128_string(cx, obj, "first_reward_cycle", *first_reward_cycle)?;
             set_u128_string(cx, obj, "bond_start_height", *bond_start_height)?;
             set_u128_string(cx, obj, "unlock_cycle", *unlock_cycle)?;
@@ -269,11 +277,15 @@ fn encode_event_data<'a>(
         }
 
         Pox5EventData::ClaimRewards {
+            signer_manager,
+            reward_cycle,
             stx_rewards,
             bond_rewards,
             bond_totals,
             total_rewards,
         } => {
+            set_string(cx, obj, "signer_manager", signer_manager)?;
+            set_u128_string(cx, obj, "reward_cycle", *reward_cycle)?;
             let stx_obj = cx.empty_object();
             set_u128_string(cx, &stx_obj, "earned", stx_rewards.earned)?;
             set_u128_string(
@@ -296,6 +308,56 @@ fn encode_event_data<'a>(
 
             set_u128_string(cx, obj, "bond_totals", *bond_totals)?;
             set_u128_string(cx, obj, "total_rewards", *total_rewards)?;
+        }
+
+        Pox5EventData::ClaimStakerRewardsForSigner {
+            signer_manager,
+            staker,
+            reward_cycle,
+            bond_index,
+            rewards_claimed,
+        } => {
+            set_string(cx, obj, "signer_manager", signer_manager)?;
+            set_string(cx, obj, "staker", staker)?;
+            set_u128_string(cx, obj, "reward_cycle", *reward_cycle)?;
+            set_optional_u128_string(cx, obj, "bond_index", *bond_index)?;
+            set_u128_string(cx, obj, "rewards_claimed", *rewards_claimed)?;
+        }
+
+        Pox5EventData::GrantSignerKey {
+            signer_key,
+            signer_manager,
+            auth_id,
+        } => {
+            set_string(cx, obj, "signer_key", signer_key)?;
+            set_string(cx, obj, "signer_manager", signer_manager)?;
+            set_u128_string(cx, obj, "auth_id", *auth_id)?;
+        }
+
+        Pox5EventData::RevokeSignerGrant {
+            signer_key,
+            signer_manager,
+        } => {
+            set_string(cx, obj, "signer_key", signer_key)?;
+            set_string(cx, obj, "signer_manager", signer_manager)?;
+        }
+
+        Pox5EventData::DisallowContractCaller {
+            sender,
+            contract_caller,
+        } => {
+            set_string(cx, obj, "sender", sender)?;
+            set_string(cx, obj, "contract_caller", contract_caller)?;
+        }
+
+        Pox5EventData::AllowContractCaller {
+            sender,
+            contract_caller,
+            until_burn_ht,
+        } => {
+            set_string(cx, obj, "sender", sender)?;
+            set_string(cx, obj, "contract_caller", contract_caller)?;
+            set_optional_u128_string(cx, obj, "until_burn_ht", *until_burn_ht)?;
         }
     }
     Ok(())

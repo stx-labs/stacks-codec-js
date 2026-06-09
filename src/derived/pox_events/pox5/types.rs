@@ -11,6 +11,7 @@
 /// variant maps 1:1 to a `(print { topic: "...", ... })` site in the source.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Pox5EventName {
+    SetBondAdmin,
     SetupBond,
     AddToAllowlist,
     RegisterForBond,
@@ -24,11 +25,17 @@ pub enum Pox5EventName {
     CalculateRewards,
     BondDistribution,
     ClaimRewards,
+    ClaimStakerRewardsForSigner,
+    GrantSignerKey,
+    RevokeSignerGrant,
+    DisallowContractCaller,
+    AllowContractCaller,
 }
 
 impl Pox5EventName {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
+            "set-bond-admin" => Some(Pox5EventName::SetBondAdmin),
             "setup-bond" => Some(Pox5EventName::SetupBond),
             "add-to-allowlist" => Some(Pox5EventName::AddToAllowlist),
             "register-for-bond" => Some(Pox5EventName::RegisterForBond),
@@ -42,12 +49,18 @@ impl Pox5EventName {
             "calculate-rewards" => Some(Pox5EventName::CalculateRewards),
             "bond-distribution" => Some(Pox5EventName::BondDistribution),
             "claim-rewards" => Some(Pox5EventName::ClaimRewards),
+            "claim-staker-rewards-for-signer" => Some(Pox5EventName::ClaimStakerRewardsForSigner),
+            "grant-signer-key" => Some(Pox5EventName::GrantSignerKey),
+            "revoke-signer-grant" => Some(Pox5EventName::RevokeSignerGrant),
+            "disallow-contract-caller" => Some(Pox5EventName::DisallowContractCaller),
+            "allow-contract-caller" => Some(Pox5EventName::AllowContractCaller),
             _ => None,
         }
     }
 
     pub fn as_str(&self) -> &'static str {
         match self {
+            Pox5EventName::SetBondAdmin => "set-bond-admin",
             Pox5EventName::SetupBond => "setup-bond",
             Pox5EventName::AddToAllowlist => "add-to-allowlist",
             Pox5EventName::RegisterForBond => "register-for-bond",
@@ -61,6 +74,11 @@ impl Pox5EventName {
             Pox5EventName::CalculateRewards => "calculate-rewards",
             Pox5EventName::BondDistribution => "bond-distribution",
             Pox5EventName::ClaimRewards => "claim-rewards",
+            Pox5EventName::ClaimStakerRewardsForSigner => "claim-staker-rewards-for-signer",
+            Pox5EventName::GrantSignerKey => "grant-signer-key",
+            Pox5EventName::RevokeSignerGrant => "revoke-signer-grant",
+            Pox5EventName::DisallowContractCaller => "disallow-contract-caller",
+            Pox5EventName::AllowContractCaller => "allow-contract-caller",
         }
     }
 }
@@ -77,19 +95,22 @@ pub struct Pox5SyntheticEvent {
 /// by the Neon encoder).
 #[derive(Debug, Clone)]
 pub enum Pox5EventData {
+    /// Logged by `set-bond-admin` when the bond admin principal is rotated.
+    SetBondAdmin {
+        old_admin: String,
+        new_admin: String,
+    },
+
     /// Logged by `setup-bond` when a new protocol bond is created.
     SetupBond {
         bond_index: u128,
         target_rate: u128,
         stx_value_ratio: u128,
         min_ustx_ratio: u128,
-        /// `(buff 683)` — opaque early-unlock authorization script (e.g. a
-        /// pubkey + `OP_CHECKSIGVERIFY`, or an M-of-N multisig template).
-        /// Surfaced as a hex string; callers decode per their protocol.
+        /// `(buff 683)` — Bitcoin script subscript guarding the early-exit
+        /// (`OP_ELSE`) branch of the L1 lockup (e.g. `<pubkey> OP_CHECKSIG`
+        /// or an M-of-N `CHECKMULTISIG` template). Surfaced as a hex string.
         early_unlock_bytes: String,
-        /// Principal allowed to call `announce-l1-early-exit` for stakers in
-        /// this bond.
-        early_unlock_admin: String,
         first_reward_cycle: u128,
         bond_start_height: u128,
         unlock_cycle: u128,
@@ -240,10 +261,55 @@ pub enum Pox5EventData {
 
     /// Logged by `claim-rewards` when a signer claims accrued rewards.
     ClaimRewards {
+        signer_manager: String,
+        reward_cycle: u128,
         stx_rewards: ClaimRewardsInfo,
         bond_rewards: Vec<BondRewardsInfo>,
         bond_totals: u128,
         total_rewards: u128,
+    },
+
+    /// Logged by `claim-staker-rewards-for-signer` when a signer manager
+    /// marks a staker as having claimed rewards for a cycle.
+    ClaimStakerRewardsForSigner {
+        signer_manager: String,
+        staker: String,
+        reward_cycle: u128,
+        /// `(optional uint)` — present for bond rewards, `None` for STX-only
+        /// staking rewards.
+        bond_index: Option<u128>,
+        rewards_claimed: u128,
+    },
+
+    /// Logged by `grant-signer-key` when a signer key grant is recorded.
+    GrantSignerKey {
+        /// `(buff 33)` — compressed secp256k1 public key, hex-encoded.
+        signer_key: String,
+        signer_manager: String,
+        auth_id: u128,
+    },
+
+    /// Logged by `revoke-signer-grant` when a signer key grant is revoked.
+    RevokeSignerGrant {
+        /// `(buff 33)` — compressed secp256k1 public key, hex-encoded.
+        signer_key: String,
+        signer_manager: String,
+    },
+
+    /// Logged by `disallow-contract-caller` when a caller allowance is
+    /// removed.
+    DisallowContractCaller {
+        sender: String,
+        contract_caller: String,
+    },
+
+    /// Logged by `allow-contract-caller` when a caller allowance is granted.
+    AllowContractCaller {
+        sender: String,
+        contract_caller: String,
+        /// `(optional uint)` — burn height at which the allowance expires;
+        /// `None` means it never expires.
+        until_burn_ht: Option<u128>,
     },
 }
 

@@ -10,7 +10,7 @@ use clarity::vm::types::Value as UpstreamValue;
 
 use super::super::clarity_helpers::{
     clarity_principal_to_string, extract_ascii_string, extract_bool, extract_buffer_hex,
-    extract_list, extract_tuple, extract_uint, get_tuple_field,
+    extract_list, extract_optional_uint, extract_tuple, extract_uint, get_tuple_field, tuple_get,
 };
 use super::types::*;
 
@@ -46,16 +46,17 @@ pub fn decode_pox5_synthetic_event(
     })?;
 
     let data = match name {
+        Pox5EventName::SetBondAdmin => Pox5EventData::SetBondAdmin {
+            old_admin: clarity_principal_to_string(get_tuple_field(tuple, "old-admin")?)?,
+            new_admin: clarity_principal_to_string(get_tuple_field(tuple, "new-admin")?)?,
+        },
+
         Pox5EventName::SetupBond => Pox5EventData::SetupBond {
             bond_index: extract_uint(get_tuple_field(tuple, "bond-index")?)?,
             target_rate: extract_uint(get_tuple_field(tuple, "target-rate")?)?,
             stx_value_ratio: extract_uint(get_tuple_field(tuple, "stx-value-ratio")?)?,
             min_ustx_ratio: extract_uint(get_tuple_field(tuple, "min-ustx-ratio")?)?,
             early_unlock_bytes: extract_buffer_hex(get_tuple_field(tuple, "early-unlock-bytes")?)?,
-            early_unlock_admin: clarity_principal_to_string(get_tuple_field(
-                tuple,
-                "early-unlock-admin",
-            )?)?,
             first_reward_cycle: extract_uint(get_tuple_field(tuple, "first-reward-cycle")?)?,
             bond_start_height: extract_uint(get_tuple_field(tuple, "bond-start-height")?)?,
             unlock_cycle: extract_uint(get_tuple_field(tuple, "unlock-cycle")?)?,
@@ -183,6 +184,8 @@ pub fn decode_pox5_synthetic_event(
         },
 
         Pox5EventName::ClaimRewards => Pox5EventData::ClaimRewards {
+            signer_manager: clarity_principal_to_string(get_tuple_field(tuple, "signer-manager")?)?,
+            reward_cycle: extract_uint(get_tuple_field(tuple, "reward-cycle")?)?,
             stx_rewards: extract_claim_rewards_info(get_tuple_field(tuple, "stx-rewards")?)?,
             bond_rewards: extract_list(
                 get_tuple_field(tuple, "bond-rewards")?,
@@ -190,6 +193,42 @@ pub fn decode_pox5_synthetic_event(
             )?,
             bond_totals: extract_uint(get_tuple_field(tuple, "bond-totals")?)?,
             total_rewards: extract_uint(get_tuple_field(tuple, "total-rewards")?)?,
+        },
+
+        Pox5EventName::ClaimStakerRewardsForSigner => Pox5EventData::ClaimStakerRewardsForSigner {
+            signer_manager: clarity_principal_to_string(get_tuple_field(tuple, "signer-manager")?)?,
+            staker: clarity_principal_to_string(get_tuple_field(tuple, "staker")?)?,
+            reward_cycle: extract_uint(get_tuple_field(tuple, "reward-cycle")?)?,
+            bond_index: extract_optional_uint(tuple_get(tuple, "bond-index"))?,
+            rewards_claimed: extract_uint(get_tuple_field(tuple, "rewards-claimed")?)?,
+        },
+
+        Pox5EventName::GrantSignerKey => Pox5EventData::GrantSignerKey {
+            signer_key: extract_buffer_hex(get_tuple_field(tuple, "signer-key")?)?,
+            signer_manager: clarity_principal_to_string(get_tuple_field(tuple, "signer-manager")?)?,
+            auth_id: extract_uint(get_tuple_field(tuple, "auth-id")?)?,
+        },
+
+        Pox5EventName::RevokeSignerGrant => Pox5EventData::RevokeSignerGrant {
+            signer_key: extract_buffer_hex(get_tuple_field(tuple, "signer-key")?)?,
+            signer_manager: clarity_principal_to_string(get_tuple_field(tuple, "signer-manager")?)?,
+        },
+
+        Pox5EventName::DisallowContractCaller => Pox5EventData::DisallowContractCaller {
+            sender: clarity_principal_to_string(get_tuple_field(tuple, "sender")?)?,
+            contract_caller: clarity_principal_to_string(get_tuple_field(
+                tuple,
+                "contract-caller",
+            )?)?,
+        },
+
+        Pox5EventName::AllowContractCaller => Pox5EventData::AllowContractCaller {
+            sender: clarity_principal_to_string(get_tuple_field(tuple, "sender")?)?,
+            contract_caller: clarity_principal_to_string(get_tuple_field(
+                tuple,
+                "contract-caller",
+            )?)?,
+            until_burn_ht: extract_optional_uint(tuple_get(tuple, "until-burn-ht"))?,
         },
     };
 
@@ -242,6 +281,14 @@ mod tests {
 
     fn buff(bytes: Vec<u8>) -> UpstreamValue {
         UpstreamValue::Sequence(SequenceData::Buffer(BuffData { data: bytes }))
+    }
+
+    fn some_uint(n: u128) -> UpstreamValue {
+        UpstreamValue::some(UpstreamValue::UInt(n)).unwrap()
+    }
+
+    fn none_value() -> UpstreamValue {
+        UpstreamValue::none()
     }
 
     fn make_tuple(fields: Vec<(&str, UpstreamValue)>) -> UpstreamValue {
@@ -310,8 +357,29 @@ mod tests {
     // ─── Per-event happy paths ───────────────────────────────────────────────
 
     #[test]
+    fn set_bond_admin_decodes() {
+        let cv = make_tuple(vec![
+            ("topic", ascii("set-bond-admin")),
+            ("old-admin", principal([0x11u8; 20])),
+            ("new-admin", principal([0x22u8; 20])),
+        ]);
+        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
+        assert_eq!(event.name, Pox5EventName::SetBondAdmin);
+        match event.data {
+            Pox5EventData::SetBondAdmin {
+                old_admin,
+                new_admin,
+            } => {
+                assert!(old_admin.starts_with("SP") || old_admin.starts_with("ST"));
+                assert!(new_admin.starts_with("SP") || new_admin.starts_with("ST"));
+                assert_ne!(old_admin, new_admin);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
     fn setup_bond_decodes() {
-        let admin_bytes = [0x33u8; 20];
         let cv = make_tuple(vec![
             ("topic", ascii("setup-bond")),
             ("bond-index", UpstreamValue::UInt(0)),
@@ -319,7 +387,6 @@ mod tests {
             ("stx-value-ratio", UpstreamValue::UInt(800)),
             ("min-ustx-ratio", UpstreamValue::UInt(10)),
             ("early-unlock-bytes", buff(vec![0xab, 0xcd, 0xef])),
-            ("early-unlock-admin", principal(admin_bytes)),
             ("first-reward-cycle", UpstreamValue::UInt(50)),
             ("bond-start-height", UpstreamValue::UInt(1_050_000)),
             ("unlock-cycle", UpstreamValue::UInt(56)),
@@ -332,7 +399,6 @@ mod tests {
                 bond_index,
                 target_rate,
                 early_unlock_bytes,
-                early_unlock_admin,
                 first_reward_cycle,
                 bond_start_height,
                 unlock_cycle,
@@ -342,9 +408,6 @@ mod tests {
                 assert_eq!(bond_index, 0);
                 assert_eq!(target_rate, 1500);
                 assert_eq!(early_unlock_bytes, "0xabcdef");
-                assert!(
-                    early_unlock_admin.starts_with("SP") || early_unlock_admin.starts_with("ST")
-                );
                 assert_eq!(first_reward_cycle, 50);
                 assert_eq!(bond_start_height, 1_050_000);
                 assert_eq!(unlock_cycle, 56);
@@ -670,6 +733,8 @@ mod tests {
         ]);
         let cv = make_tuple(vec![
             ("topic", ascii("claim-rewards")),
+            ("signer-manager", principal([0x44u8; 20])),
+            ("reward-cycle", UpstreamValue::UInt(42)),
             ("stx-rewards", stx_rewards),
             ("bond-rewards", make_tuple_list(vec![bond_reward])),
             ("bond-totals", UpstreamValue::UInt(50)),
@@ -678,11 +743,15 @@ mod tests {
         let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
         match event.data {
             Pox5EventData::ClaimRewards {
+                signer_manager,
+                reward_cycle,
                 stx_rewards,
                 bond_rewards,
                 bond_totals,
                 total_rewards,
             } => {
+                assert!(signer_manager.starts_with("SP") || signer_manager.starts_with("ST"));
+                assert_eq!(reward_cycle, 42);
                 assert_eq!(stx_rewards.earned, 11);
                 assert_eq!(stx_rewards.rewards_per_token, 22);
                 assert_eq!(bond_rewards.len(), 1);
@@ -691,6 +760,145 @@ mod tests {
                 assert_eq!(bond_rewards[0].bond_index, 5);
                 assert_eq!(bond_totals, 50);
                 assert_eq!(total_rewards, 61);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn claim_staker_rewards_for_signer_decodes() {
+        // bond rewards: bond-index is OptionalSome.
+        let cv = make_tuple(vec![
+            ("topic", ascii("claim-staker-rewards-for-signer")),
+            ("signer-manager", principal([0x44u8; 20])),
+            ("staker", principal([0x55u8; 20])),
+            ("reward-cycle", UpstreamValue::UInt(42)),
+            ("bond-index", some_uint(7)),
+            ("rewards-claimed", UpstreamValue::UInt(1234)),
+        ]);
+        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
+        match event.data {
+            Pox5EventData::ClaimStakerRewardsForSigner {
+                reward_cycle,
+                bond_index,
+                rewards_claimed,
+                ..
+            } => {
+                assert_eq!(reward_cycle, 42);
+                assert_eq!(bond_index, Some(7));
+                assert_eq!(rewards_claimed, 1234);
+            }
+            _ => panic!("wrong variant"),
+        }
+
+        // STX-only rewards: bond-index is OptionalNone.
+        let cv = make_tuple(vec![
+            ("topic", ascii("claim-staker-rewards-for-signer")),
+            ("signer-manager", principal([0x44u8; 20])),
+            ("staker", principal([0x55u8; 20])),
+            ("reward-cycle", UpstreamValue::UInt(42)),
+            ("bond-index", none_value()),
+            ("rewards-claimed", UpstreamValue::UInt(0)),
+        ]);
+        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
+        match event.data {
+            Pox5EventData::ClaimStakerRewardsForSigner { bond_index, .. } => {
+                assert_eq!(bond_index, None);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn grant_signer_key_decodes() {
+        let cv = make_tuple(vec![
+            ("topic", ascii("grant-signer-key")),
+            ("signer-key", buff(vec![0x02, 0xaa, 0xbb])),
+            ("signer-manager", principal([0x44u8; 20])),
+            ("auth-id", UpstreamValue::UInt(99)),
+        ]);
+        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
+        match event.data {
+            Pox5EventData::GrantSignerKey {
+                signer_key,
+                auth_id,
+                ..
+            } => {
+                assert_eq!(signer_key, "0x02aabb");
+                assert_eq!(auth_id, 99);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn revoke_signer_grant_decodes() {
+        let cv = make_tuple(vec![
+            ("topic", ascii("revoke-signer-grant")),
+            ("signer-key", buff(vec![0x03, 0xcc])),
+            ("signer-manager", principal([0x44u8; 20])),
+        ]);
+        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
+        match event.data {
+            Pox5EventData::RevokeSignerGrant {
+                signer_key,
+                signer_manager,
+            } => {
+                assert_eq!(signer_key, "0x03cc");
+                assert!(signer_manager.starts_with("SP") || signer_manager.starts_with("ST"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn disallow_contract_caller_decodes() {
+        let cv = make_tuple(vec![
+            ("topic", ascii("disallow-contract-caller")),
+            ("sender", principal([0x66u8; 20])),
+            ("contract-caller", principal([0x77u8; 20])),
+        ]);
+        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
+        match event.data {
+            Pox5EventData::DisallowContractCaller {
+                sender,
+                contract_caller,
+            } => {
+                assert!(sender.starts_with("SP") || sender.starts_with("ST"));
+                assert!(contract_caller.starts_with("SP") || contract_caller.starts_with("ST"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn allow_contract_caller_decodes() {
+        // With an expiry height.
+        let cv = make_tuple(vec![
+            ("topic", ascii("allow-contract-caller")),
+            ("sender", principal([0x66u8; 20])),
+            ("contract-caller", principal([0x77u8; 20])),
+            ("until-burn-ht", some_uint(1_000_000)),
+        ]);
+        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
+        match event.data {
+            Pox5EventData::AllowContractCaller { until_burn_ht, .. } => {
+                assert_eq!(until_burn_ht, Some(1_000_000));
+            }
+            _ => panic!("wrong variant"),
+        }
+
+        // No expiry (never expires).
+        let cv = make_tuple(vec![
+            ("topic", ascii("allow-contract-caller")),
+            ("sender", principal([0x66u8; 20])),
+            ("contract-caller", principal([0x77u8; 20])),
+            ("until-burn-ht", none_value()),
+        ]);
+        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
+        match event.data {
+            Pox5EventData::AllowContractCaller { until_burn_ht, .. } => {
+                assert_eq!(until_burn_ht, None);
             }
             _ => panic!("wrong variant"),
         }

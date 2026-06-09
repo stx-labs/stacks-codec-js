@@ -903,6 +903,7 @@ export type Pox4Event =
 // ============================================================================
 
 export enum Pox5EventName {
+  SetBondAdmin = 'set-bond-admin',
   SetupBond = 'setup-bond',
   AddToAllowlist = 'add-to-allowlist',
   RegisterForBond = 'register-for-bond',
@@ -916,6 +917,11 @@ export enum Pox5EventName {
   CalculateRewards = 'calculate-rewards',
   BondDistribution = 'bond-distribution',
   ClaimRewards = 'claim-rewards',
+  ClaimStakerRewardsForSigner = 'claim-staker-rewards-for-signer',
+  GrantSignerKey = 'grant-signer-key',
+  RevokeSignerGrant = 'revoke-signer-grant',
+  DisallowContractCaller = 'disallow-contract-caller',
+  AllowContractCaller = 'allow-contract-caller',
 }
 
 export interface Pox5EventBase {
@@ -925,6 +931,16 @@ export interface Pox5EventBase {
    * come back as {@link Pox4Event} instead.
    */
   pox_version: 'pox5';
+}
+
+export interface Pox5EventSetBondAdmin extends Pox5EventBase {
+  name: Pox5EventName.SetBondAdmin;
+  data: {
+    /** c32 principal of the previous bond admin. */
+    old_admin: string;
+    /** c32 principal of the new bond admin. */
+    new_admin: string;
+  };
 }
 
 export interface Pox5EventSetupBond extends Pox5EventBase {
@@ -939,12 +955,11 @@ export interface Pox5EventSetupBond extends Pox5EventBase {
     /** String-quoted unsigned integer */
     min_ustx_ratio: string;
     /**
-     * `(buff 683)` hex string. Opaque early-unlock authorization script
-     * (e.g. `<pubkey> OP_CHECKSIGVERIFY`, or an M-of-N multisig template).
+     * `(buff 683)` hex string. Bitcoin script subscript guarding the
+     * early-exit (`OP_ELSE`) branch of the L1 lockup (e.g. `<pubkey>
+     * OP_CHECKSIG`, or an M-of-N `CHECKMULTISIG` template).
      */
     early_unlock_bytes: string;
-    /** c32 principal allowed to call `announce-l1-early-exit` for stakers in this bond. */
-    early_unlock_admin: string;
     /** String-quoted unsigned integer */
     first_reward_cycle: string;
     /** String-quoted unsigned integer */
@@ -1187,6 +1202,10 @@ export interface Pox5BondRewardsInfo extends Pox5ClaimRewardsInfo {
 export interface Pox5EventClaimRewards extends Pox5EventBase {
   name: Pox5EventName.ClaimRewards;
   data: {
+    /** c32 principal of the signer manager that claimed. */
+    signer_manager: string;
+    /** String-quoted unsigned integer */
+    reward_cycle: string;
     stx_rewards: Pox5ClaimRewardsInfo;
     bond_rewards: Pox5BondRewardsInfo[];
     /** String-quoted unsigned integer */
@@ -1196,7 +1215,74 @@ export interface Pox5EventClaimRewards extends Pox5EventBase {
   };
 }
 
+export interface Pox5EventClaimStakerRewardsForSigner extends Pox5EventBase {
+  name: Pox5EventName.ClaimStakerRewardsForSigner;
+  data: {
+    /** c32 principal of the signer manager. */
+    signer_manager: string;
+    /** c32 principal of the staker. */
+    staker: string;
+    /** String-quoted unsigned integer */
+    reward_cycle: string;
+    /**
+     * String-quoted unsigned integer for bond rewards, or `null` for
+     * STX-only staking rewards.
+     */
+    bond_index: string | null;
+    /** String-quoted unsigned integer */
+    rewards_claimed: string;
+  };
+}
+
+export interface Pox5EventGrantSignerKey extends Pox5EventBase {
+  name: Pox5EventName.GrantSignerKey;
+  data: {
+    /** `(buff 33)` hex string — compressed secp256k1 public key. */
+    signer_key: string;
+    /** c32 principal of the signer manager. */
+    signer_manager: string;
+    /** String-quoted unsigned integer */
+    auth_id: string;
+  };
+}
+
+export interface Pox5EventRevokeSignerGrant extends Pox5EventBase {
+  name: Pox5EventName.RevokeSignerGrant;
+  data: {
+    /** `(buff 33)` hex string — compressed secp256k1 public key. */
+    signer_key: string;
+    /** c32 principal of the signer manager. */
+    signer_manager: string;
+  };
+}
+
+export interface Pox5EventDisallowContractCaller extends Pox5EventBase {
+  name: Pox5EventName.DisallowContractCaller;
+  data: {
+    /** c32 principal of the tx-sender that revoked the allowance. */
+    sender: string;
+    /** c32 principal of the contract-caller whose allowance was removed. */
+    contract_caller: string;
+  };
+}
+
+export interface Pox5EventAllowContractCaller extends Pox5EventBase {
+  name: Pox5EventName.AllowContractCaller;
+  data: {
+    /** c32 principal of the tx-sender that granted the allowance. */
+    sender: string;
+    /** c32 principal of the allowed contract-caller. */
+    contract_caller: string;
+    /**
+     * String-quoted unsigned integer burn height at which the allowance
+     * expires, or `null` if it never expires.
+     */
+    until_burn_ht: string | null;
+  };
+}
+
 export type Pox5Event =
+  | Pox5EventSetBondAdmin
   | Pox5EventSetupBond
   | Pox5EventAddToAllowlist
   | Pox5EventRegisterForBond
@@ -1209,7 +1295,12 @@ export type Pox5Event =
   | Pox5EventUnstake
   | Pox5EventCalculateRewards
   | Pox5EventBondDistribution
-  | Pox5EventClaimRewards;
+  | Pox5EventClaimRewards
+  | Pox5EventClaimStakerRewardsForSigner
+  | Pox5EventGrantSignerKey
+  | Pox5EventRevokeSignerGrant
+  | Pox5EventDisallowContractCaller
+  | Pox5EventAllowContractCaller;
 
 // ============================================================================
 // PoX Synthetic Event — combined union
