@@ -137,6 +137,10 @@ pub enum Pox5EventData {
         unlock_burn_height: u128,
         unlock_cycle: u128,
         is_l1_lock: bool,
+        /// Describes how the BTC was locked: an `"l1"` lockup carries the
+        /// list of proven L1 outputs in `txs`; an `"l2"` (sBTC) lockup has
+        /// `txs == None`.
+        btc_lockup: BtcLockup,
     },
 
     /// Logged by `update-bond-registration` when a participant switches
@@ -327,4 +331,21 @@ pub struct BondRewardsInfo {
     pub earned: u128,
     pub rewards_per_token: u128,
     pub bond_index: u128,
+}
+
+/// The `btc-lockup` sub-tuple from `register-for-bond` events.
+#[derive(Debug, Clone)]
+pub struct BtcLockup {
+    /// `"l1"` for a Bitcoin L1 lockup, `"l2"` for an sBTC lockup.
+    pub lockup_type: String,
+    /// The proven L1 outputs for an `"l1"` lockup; `None` for `"l2"`.
+    pub txs: Option<Vec<BtcLockupTx>>,
+}
+
+/// One entry in the `txs` list of a `register-for-bond` `btc-lockup` tuple.
+#[derive(Debug, Clone)]
+pub struct BtcLockupTx {
+    /// Reversed (big-endian) txid as a `0x`-prefixed hex string.
+    pub txid: String,
+    pub output_index: u128,
 }

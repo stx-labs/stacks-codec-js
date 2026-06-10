@@ -983,6 +983,25 @@ export interface Pox5EventAddToAllowlist extends Pox5EventBase {
   };
 }
 
+/** One proven L1 output in a `register-for-bond` `btc_lockup`. */
+export interface Pox5BtcLockupTx {
+  /** Reversed (big-endian) txid as a `0x`-prefixed hex string. */
+  txid: string;
+  /** String-quoted unsigned integer */
+  output_index: string;
+}
+
+/** The `btc_lockup` sub-object of a `register-for-bond` event. */
+export interface Pox5BtcLockup {
+  /** `'l1'` for a Bitcoin L1 lockup, `'l2'` for an sBTC lockup. */
+  type: string;
+  /**
+   * The proven L1 outputs for an `'l1'` lockup, or `null` for an `'l2'`
+   * (sBTC) lockup.
+   */
+  txs: Pox5BtcLockupTx[] | null;
+}
+
 export interface Pox5EventRegisterForBond extends Pox5EventBase {
   name: Pox5EventName.RegisterForBond;
   data: {
@@ -1004,6 +1023,8 @@ export interface Pox5EventRegisterForBond extends Pox5EventBase {
     unlock_cycle: string;
     /** True if the participant proved an L1 BTC lockup; false if they locked sBTC. */
     is_l1_lock: boolean;
+    /** How the BTC was locked (L1 proof outputs vs. sBTC). */
+    btc_lockup: Pox5BtcLockup;
   };
 }
 

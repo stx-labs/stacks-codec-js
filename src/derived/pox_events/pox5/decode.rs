@@ -79,6 +79,7 @@ pub fn decode_pox5_synthetic_event(
             unlock_burn_height: extract_uint(get_tuple_field(tuple, "unlock-burn-height")?)?,
             unlock_cycle: extract_uint(get_tuple_field(tuple, "unlock-cycle")?)?,
             is_l1_lock: extract_bool(get_tuple_field(tuple, "is-l1-lock")?)?,
+            btc_lockup: extract_btc_lockup(get_tuple_field(tuple, "btc-lockup")?)?,
         },
 
         Pox5EventName::UpdateBondRegistration => Pox5EventData::UpdateBondRegistration {
@@ -233,6 +234,40 @@ pub fn decode_pox5_synthetic_event(
     };
 
     Ok(Some(Pox5SyntheticEvent { name, data }))
+}
+
+/// Extract the `btc-lockup` sub-tuple `{ type, txs }` from
+/// `register-for-bond`. `txs` is `(optional (list { txid, output-index }))` —
+/// `Some` for an L1 lockup, `None` for an sBTC (L2) lockup.
+fn extract_btc_lockup(val: &UpstreamValue) -> Result<BtcLockup, String> {
+    let tuple = extract_tuple(val)?;
+    let txs_val = get_tuple_field(tuple, "txs")?;
+    let txs = match txs_val {
+        UpstreamValue::Optional(opt) => match &opt.data {
+            None => None,
+            Some(inner) => Some(extract_list(inner.as_ref(), extract_btc_lockup_tx)?),
+        },
+        other => {
+            return Err(format!(
+                "Expected OptionalSome/OptionalNone for btc-lockup txs, got {:?}",
+                other
+            ))
+        }
+    };
+    Ok(BtcLockup {
+        lockup_type: extract_ascii_string(get_tuple_field(tuple, "type")?)?,
+        txs,
+    })
+}
+
+/// Extract one entry from a `btc-lockup` `txs` list:
+/// `{ txid, output-index }`.
+fn extract_btc_lockup_tx(val: &UpstreamValue) -> Result<BtcLockupTx, String> {
+    let tuple = extract_tuple(val)?;
+    Ok(BtcLockupTx {
+        txid: extract_buffer_hex(get_tuple_field(tuple, "txid")?)?,
+        output_index: extract_uint(get_tuple_field(tuple, "output-index")?)?,
+    })
 }
 
 /// Extract the `stx-rewards` sub-tuple `{ earned, rewards-per-token }`.
@@ -442,7 +477,23 @@ mod tests {
     }
 
     #[test]
-    fn register_for_bond_decodes() {
+    fn register_for_bond_l1_decodes() {
+        // L1 lockup: btc-lockup.type == "l1", txs == (some (list ...)).
+        let tx0 = make_tuple(vec![
+            ("txid", buff(vec![0xde, 0xad, 0xbe, 0xef])),
+            ("output-index", UpstreamValue::UInt(0)),
+        ]);
+        let tx1 = make_tuple(vec![
+            ("txid", buff(vec![0x01, 0x02])),
+            ("output-index", UpstreamValue::UInt(3)),
+        ]);
+        let btc_lockup = make_tuple(vec![
+            ("type", ascii("l1")),
+            (
+                "txs",
+                UpstreamValue::some(make_tuple_list(vec![tx0, tx1])).unwrap(),
+            ),
+        ]);
         let cv = make_tuple(vec![
             ("topic", ascii("register-for-bond")),
             ("signer", principal([0x11; 20])),
@@ -454,6 +505,7 @@ mod tests {
             ("unlock-burn-height", UpstreamValue::UInt(900_000)),
             ("unlock-cycle", UpstreamValue::UInt(46)),
             ("is-l1-lock", UpstreamValue::Bool(true)),
+            ("btc-lockup", btc_lockup),
         ]);
         let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
         match event.data {
@@ -461,11 +513,51 @@ mod tests {
                 amount_ustx,
                 sats_total,
                 is_l1_lock,
+                btc_lockup,
                 ..
             } => {
                 assert_eq!(amount_ustx, 100);
                 assert_eq!(sats_total, 50);
                 assert!(is_l1_lock);
+                assert_eq!(btc_lockup.lockup_type, "l1");
+                let txs = btc_lockup.txs.expect("l1 should have txs");
+                assert_eq!(txs.len(), 2);
+                assert_eq!(txs[0].txid, "0xdeadbeef");
+                assert_eq!(txs[0].output_index, 0);
+                assert_eq!(txs[1].txid, "0x0102");
+                assert_eq!(txs[1].output_index, 3);
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn register_for_bond_l2_decodes() {
+        // sBTC lockup: btc-lockup.type == "l2", txs == none.
+        let btc_lockup = make_tuple(vec![("type", ascii("l2")), ("txs", none_value())]);
+        let cv = make_tuple(vec![
+            ("topic", ascii("register-for-bond")),
+            ("signer", principal([0x11; 20])),
+            ("staker", principal([0x22; 20])),
+            ("amount-ustx", UpstreamValue::UInt(100)),
+            ("sats-total", UpstreamValue::UInt(50)),
+            ("bond-index", UpstreamValue::UInt(2)),
+            ("first-reward-cycle", UpstreamValue::UInt(40)),
+            ("unlock-burn-height", UpstreamValue::UInt(900_000)),
+            ("unlock-cycle", UpstreamValue::UInt(46)),
+            ("is-l1-lock", UpstreamValue::Bool(false)),
+            ("btc-lockup", btc_lockup),
+        ]);
+        let event = decode_pox5_synthetic_event(&cv).unwrap().unwrap();
+        match event.data {
+            Pox5EventData::RegisterForBond {
+                is_l1_lock,
+                btc_lockup,
+                ..
+            } => {
+                assert!(!is_l1_lock);
+                assert_eq!(btc_lockup.lockup_type, "l2");
+                assert!(btc_lockup.txs.is_none());
             }
             _ => panic!("wrong variant"),
         }
