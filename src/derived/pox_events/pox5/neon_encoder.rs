@@ -91,6 +91,7 @@ fn encode_event_data<'a>(
             unlock_burn_height,
             unlock_cycle,
             is_l1_lock,
+            btc_lockup,
         } => {
             set_string(cx, obj, "signer", signer)?;
             set_string(cx, obj, "staker", staker)?;
@@ -101,6 +102,26 @@ fn encode_event_data<'a>(
             set_u128_string(cx, obj, "unlock_burn_height", *unlock_burn_height)?;
             set_u128_string(cx, obj, "unlock_cycle", *unlock_cycle)?;
             set_bool(cx, obj, "is_l1_lock", *is_l1_lock)?;
+
+            let lockup_obj = cx.empty_object();
+            set_string(cx, &lockup_obj, "type", &btc_lockup.lockup_type)?;
+            match &btc_lockup.txs {
+                Some(txs) => {
+                    let txs_arr = JsArray::new(cx, txs.len());
+                    for (i, tx) in txs.iter().enumerate() {
+                        let tx_obj = cx.empty_object();
+                        set_string(cx, &tx_obj, "txid", &tx.txid)?;
+                        set_u128_string(cx, &tx_obj, "output_index", tx.output_index)?;
+                        txs_arr.set(cx, i as u32, tx_obj)?;
+                    }
+                    lockup_obj.set(cx, "txs", txs_arr)?;
+                }
+                None => {
+                    let null_val = cx.null();
+                    lockup_obj.set(cx, "txs", null_val)?;
+                }
+            }
+            obj.set(cx, "btc_lockup", lockup_obj)?;
         }
 
         Pox5EventData::UpdateBondRegistration {
