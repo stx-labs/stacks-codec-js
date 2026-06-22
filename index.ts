@@ -3,7 +3,12 @@ export * from './loader.js';
 export const StacksNativeEncodingBindings = bindings;
 export default StacksNativeEncodingBindings;
 
-export type TxPostCondition = PostConditionStx | PostConditionFungible | PostConditionNonfungible;
+export type TxPostCondition =
+  | PostConditionStx
+  | PostConditionFungible
+  | PostConditionNonfungible
+  | PostConditionStaking
+  | PostConditionPox;
 
 export interface DecodedPostConditionsResult {
   post_condition_mode: PostConditionModeID;
@@ -37,6 +42,8 @@ export enum PostConditionAssetInfoID {
   STX = 0,
   FungibleAsset = 1,
   NonfungibleAsset = 2,
+  Staking = 3,
+  Pox = 4,
 }
 
 export interface PostConditionStx {
@@ -65,10 +72,47 @@ export interface PostConditionNonfungible {
   condition_name: PostConditionNonFungibleConditionName;
 }
 
+/**
+ * Constrains how much STX a principal may stake (lock for PoX) during the
+ * transaction. Only valid in Stacks epoch 4.0 and later.
+ */
+export interface PostConditionStaking {
+  asset_info_id: PostConditionAssetInfoID.Staking;
+  principal: PostConditionPrincipal;
+  condition_code: PostConditionFungibleConditionCodeID;
+  condition_name: PostConditionFungibleConditionCodeName;
+  amount: string;
+}
+
+/**
+ * Constrains whether a principal may perform a position-altering PoX
+ * operation (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+ * `announce-l1-early-exit`) during the transaction. Only valid in Stacks
+ * epoch 4.0 and later.
+ */
+export interface PostConditionPox {
+  asset_info_id: PostConditionAssetInfoID.Pox;
+  principal: PostConditionPrincipal;
+  condition_code: PostConditionPoxConditionCodeID;
+  condition_name: PostConditionPoxConditionCodeName;
+}
+
 export interface PostConditionAssetInfo {
   contract_address: string;
   contract_name: string;
   asset_name: string;
+}
+
+export enum PostConditionPoxConditionCodeID {
+  NotPerformed = 0x30,
+  MaybePerformed = 0x31,
+  Performed = 0x32,
+}
+
+export enum PostConditionPoxConditionCodeName {
+  NotPerformed = 'not_performed',
+  MaybePerformed = 'maybe_performed',
+  Performed = 'performed',
 }
 
 export enum PostConditionNonfungibleConditionCodeID {

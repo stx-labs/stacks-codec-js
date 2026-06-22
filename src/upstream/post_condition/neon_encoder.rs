@@ -12,7 +12,7 @@ use crate::util::neon::{Encode, NeonJsSerialize};
 
 use super::{
     AssetInfo, AssetInfoID, FungibleConditionCode, NonfungibleConditionCode,
-    PostConditionPrincipal, PostConditionPrincipalID, TransactionPostCondition,
+    PostConditionPrincipal, PostConditionPrincipalID, PoxConditionCode, TransactionPostCondition,
 };
 
 impl NeonJsSerialize for Encode<'_, TransactionPostCondition> {
@@ -82,6 +82,29 @@ impl NeonJsSerialize for Encode<'_, TransactionPostCondition> {
                 obj.set(cx, "asset_value", asset_value_obj)?;
 
                 Encode(nonfungible_condition).neon_js_serialize(cx, obj, &())?;
+            }
+            TransactionPostCondition::Staking(principal, fungible_condition, amount) => {
+                let asset_info_id = cx.number(AssetInfoID::Staking as u8);
+                obj.set(cx, "asset_info_id", asset_info_id)?;
+
+                let principal_obj = cx.empty_object();
+                Encode(principal).neon_js_serialize(cx, &principal_obj, &())?;
+                obj.set(cx, "principal", principal_obj)?;
+
+                Encode(fungible_condition).neon_js_serialize(cx, obj, &())?;
+
+                let amount_str = cx.string(amount.to_string());
+                obj.set(cx, "amount", amount_str)?;
+            }
+            TransactionPostCondition::Pox(principal, pox_condition) => {
+                let asset_info_id = cx.number(AssetInfoID::Pox as u8);
+                obj.set(cx, "asset_info_id", asset_info_id)?;
+
+                let principal_obj = cx.empty_object();
+                Encode(principal).neon_js_serialize(cx, &principal_obj, &())?;
+                obj.set(cx, "principal", principal_obj)?;
+
+                Encode(pox_condition).neon_js_serialize(cx, obj, &())?;
             }
         }
         Ok(())
@@ -153,6 +176,26 @@ impl NeonJsSerialize for Encode<'_, NonfungibleConditionCode> {
             NonfungibleConditionCode::Sent => "sent",
             NonfungibleConditionCode::NotSent => "not_sent",
             NonfungibleConditionCode::MaybeSent => "maybe_sent",
+        };
+        let condition_code = cx.number(*self.0 as u8);
+        obj.set(cx, "condition_code", condition_code)?;
+        let condition_name_str = cx.string(condition_name);
+        obj.set(cx, "condition_name", condition_name_str)?;
+        Ok(())
+    }
+}
+
+impl NeonJsSerialize for Encode<'_, PoxConditionCode> {
+    fn neon_js_serialize(
+        &self,
+        cx: &mut FunctionContext,
+        obj: &Handle<JsObject>,
+        _extra_ctx: &(),
+    ) -> NeonResult<()> {
+        let condition_name = match self.0 {
+            PoxConditionCode::NotPerformed => "not_performed",
+            PoxConditionCode::MaybePerformed => "maybe_performed",
+            PoxConditionCode::Performed => "performed",
         };
         let condition_code = cx.number(*self.0 as u8);
         obj.set(cx, "condition_code", condition_code)?;
