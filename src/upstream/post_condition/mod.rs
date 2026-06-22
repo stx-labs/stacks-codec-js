@@ -11,7 +11,7 @@ use std::{convert::TryInto, io::Cursor};
 
 pub use blockstack_lib::chainstate::stacks::{
     AssetInfo, AssetInfoID, FungibleConditionCode, NonfungibleConditionCode,
-    PostConditionPrincipal, PostConditionPrincipalID, TransactionPostCondition,
+    PostConditionPrincipal, PostConditionPrincipalID, PoxConditionCode, TransactionPostCondition,
 };
 use neon::prelude::*;
 use stacks_codec::StacksMessageCodec;
