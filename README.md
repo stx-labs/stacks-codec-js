@@ -236,7 +236,7 @@ import { decodeClarityValueToPrincipal } from '@stacks/codec';
 
 // Serialized hex string of an example Clarity value (0x-prefix optional, Buffer / Uint8Array also accepted)
 const standardPrincipal = decodeClarityValueToPrincipal('0x0516a13dce8114be0f707f94470a2e5e86eb402f2923');
-assert.strictEqual(principal, 'SP2GKVKM12JZ0YW3ZJH3GMBJYGVNM0BS94ERA45AM');
+assert.strictEqual(standardPrincipal, 'SP2GKVKM12JZ0YW3ZJH3GMBJYGVNM0BS94ERA45AM');
 
 const contractPrincipal = decodeClarityValueToPrincipal('0x0616a6a7a70f41adbe8eae708ed7ec2cbf41a272182014626974636f696e2d6d6f6e6b6579732d6c616273');
 assert.strictEqual(contractPrincipal, 'SP2KAF9RF86PVX3NEE27DFV1CQX0T4WGR41X3S45C.bitcoin-monkeys-labs');
@@ -415,17 +415,22 @@ The directory structure of this project is:
 /
 ├── Cargo.toml    # The Cargo <a href="https://doc.rust-lang.org/cargo/reference/manifest.html">manifest file</a>
 ├── package.json  # The npm <a href="https://docs.npmjs.com/cli/v7/configuring-npm/package-json">manifest file</a>
-├── native/       # The <a href="https://nodejs.org/api/addons.html">Node addon</a> modules built by this project, these are <a href="https://en.wikipedia.org/wiki/Library_(computing)#Shared_libraries">dynamically-linked shared objects</a>
-├── src/**/*.rs   # Directory containing the Rust source code for the project
-|── index.ts      # Typescript definitions for the js interface exposed by the Node addon
-|── loader.js     # Script to determine which addon file to load based on the executing target platform
-|── loader.d.ts   # Type defintions for the functions exported by the Node addon
-|── builder.js    # Script to build the native Node addon for the executing host platform
-├── tests/*.ts    # Js/ts unit tests, primarily testing the Neon (rust<->nodejs) interop layer
-└── perf-tests/   # Scripts to run performance benchmarks used by commands in package.json
+├── build.js      # Script to build the native Node addon for the executing host platform
+├── index.ts      # Typescript definitions for the JS interface exposed by the Node addon
+├── loader.js     # Script to determine which addon file to load based on the executing target platform
+├── loader.d.ts   # Type definitions for the functions exported by the Node addon
+├── native/       # The <a href="https://nodejs.org/api/addons.html">Node addon</a> binaries built by this project (one per supported target)
+├── src/          # Rust source code
+│   ├── upstream/   # Thin layer over stacks-network/stacks-core types (address, clarity_value, post_condition, stacks_block, stacks_tx)
+│   ├── derived/    # Local decoders that produce Stacks-API-shaped output (memo, pox_events)
+│   ├── util/       # Crate-internal helpers (hex, neon bindings, DeserializeError)
+│   └── lib.rs      # Neon entry point — exports the JS-facing functions
+├── tests/        # Jest end-to-end tests + fixtures
+├── scripts/      # update-stacks-core.sh — bump the upstream git pin
+└── docs/         # Migration / upgrade documentation
 </pre>
 
-The Rust source code inside the `src/**/deserialize.rs` files are responsible for deserializing the Stacks blockchain wire/binary formats defined in [SIP-005](https://github.com/stacksgov/sips/blob/main/sips/sip-005/sip-005-blocks-and-transactions.md). 
+All consensus wire-format parsing is delegated to upstream `stacks-network/stacks-core` crates (`stackslib`, `clarity`, `stacks-common`, `stacks-codec`) — see [`docs/upstream-migration.md`](docs/upstream-migration.md) for the rationale and pin-bump workflow.
 
 ## NPM Library Bundling
 

@@ -52,7 +52,7 @@ let runArgs = [
 ];
 
 if (isDevBuild) {
-  runArgs.push('--profile=release-dev', '--features=profiling');
+  runArgs.push('--profile=release-dev');
 } else {
   runArgs.push('--release')
 }

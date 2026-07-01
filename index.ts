@@ -3,7 +3,12 @@ export * from './loader.js';
 export const StacksNativeEncodingBindings = bindings;
 export default StacksNativeEncodingBindings;
 
-export type TxPostCondition = PostConditionStx | PostConditionFungible | PostConditionNonfungible;
+export type TxPostCondition =
+  | PostConditionStx
+  | PostConditionFungible
+  | PostConditionNonfungible
+  | PostConditionStaking
+  | PostConditionPox;
 
 export interface DecodedPostConditionsResult {
   post_condition_mode: PostConditionModeID;
@@ -37,6 +42,8 @@ export enum PostConditionAssetInfoID {
   STX = 0,
   FungibleAsset = 1,
   NonfungibleAsset = 2,
+  Staking = 3,
+  Pox = 4,
 }
 
 export interface PostConditionStx {
@@ -65,10 +72,47 @@ export interface PostConditionNonfungible {
   condition_name: PostConditionNonFungibleConditionName;
 }
 
+/**
+ * Constrains how much STX a principal may stake (lock for PoX) during the
+ * transaction. Only valid in Stacks epoch 4.0 and later.
+ */
+export interface PostConditionStaking {
+  asset_info_id: PostConditionAssetInfoID.Staking;
+  principal: PostConditionPrincipal;
+  condition_code: PostConditionFungibleConditionCodeID;
+  condition_name: PostConditionFungibleConditionCodeName;
+  amount: string;
+}
+
+/**
+ * Constrains whether a principal may perform a position-altering PoX
+ * operation (`unstake`, `unstake-sbtc`, `update-bond-registration`,
+ * `announce-l1-early-exit`) during the transaction. Only valid in Stacks
+ * epoch 4.0 and later.
+ */
+export interface PostConditionPox {
+  asset_info_id: PostConditionAssetInfoID.Pox;
+  principal: PostConditionPrincipal;
+  condition_code: PostConditionPoxConditionCodeID;
+  condition_name: PostConditionPoxConditionCodeName;
+}
+
 export interface PostConditionAssetInfo {
   contract_address: string;
   contract_name: string;
   asset_name: string;
+}
+
+export enum PostConditionPoxConditionCodeID {
+  NotPerformed = 0x30,
+  MaybePerformed = 0x31,
+  Performed = 0x32,
+}
+
+export enum PostConditionPoxConditionCodeName {
+  NotPerformed = 'not_performed',
+  MaybePerformed = 'maybe_performed',
+  Performed = 'performed',
 }
 
 export enum PostConditionNonfungibleConditionCodeID {
@@ -309,6 +353,7 @@ export enum ClarityVersion {
   Clarity3 = 3,
   Clarity4 = 4,
   Clarity5 = 5,
+  Clarity6 = 6,
 }
 
 export interface DecodedTxSpendingConditionSingleSig {
@@ -645,10 +690,19 @@ export interface StacksWorkScore {
 }
 
 // ============================================================================
-// PoX Synthetic Event Types
+// PoX Synthetic Event Types — pox-2 / pox-3 / pox-4
+//
+// These describe synthetic events the Stacks node emits for the older PoX
+// contracts (pox-2 through pox-4). The wire shape is always
+// `Response(Ok({ stacker, locked, ..., name, data }))` — the node
+// synthesizes the wrapper from contract-call return values.
+//
+// PoX-5 changed the model: events are produced by `(print { topic, ... })`
+// calls inside the contract itself, so they have a different shape. Those
+// types live in the next section below.
 // ============================================================================
 
-export enum PoxEventName {
+export enum Pox4EventName {
   HandleUnlock = 'handle-unlock',
   StackStx = 'stack-stx',
   StackIncrease = 'stack-increase',
@@ -663,7 +717,13 @@ export enum PoxEventName {
   RevokeDelegateStx = 'revoke-delegate-stx',
 }
 
-export interface PoxEventBase {
+export interface Pox4EventBase {
+  /**
+   * Discriminant identifying the source PoX contract version. For events
+   * decoded from pox-2 / pox-3 / pox-4 this is always `'pox4'` — pox-5
+   * events come back as {@link Pox5Event} instead.
+   */
+  pox_version: 'pox4';
   stacker: string;
   /** String-quoted unsigned integer */
   locked: string;
@@ -675,8 +735,8 @@ export interface PoxEventBase {
   pox_addr_raw: string | null;
 }
 
-export interface PoxEventHandleUnlock extends PoxEventBase {
-  name: PoxEventName.HandleUnlock;
+export interface Pox4EventHandleUnlock extends Pox4EventBase {
+  name: Pox4EventName.HandleUnlock;
   data: {
     /** String-quoted unsigned integer */
     first_cycle_locked: string;
@@ -685,8 +745,8 @@ export interface PoxEventHandleUnlock extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackStx extends PoxEventBase {
-  name: PoxEventName.StackStx;
+export interface Pox4EventStackStx extends Pox4EventBase {
+  name: Pox4EventName.StackStx;
   data: {
     /** String-quoted unsigned integer */
     lock_amount: string;
@@ -705,8 +765,8 @@ export interface PoxEventStackStx extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackIncrease extends PoxEventBase {
-  name: PoxEventName.StackIncrease;
+export interface Pox4EventStackIncrease extends Pox4EventBase {
+  name: Pox4EventName.StackIncrease;
   data: {
     /** String-quoted unsigned integer */
     increase_by: string;
@@ -721,8 +781,8 @@ export interface PoxEventStackIncrease extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackExtend extends PoxEventBase {
-  name: PoxEventName.StackExtend;
+export interface Pox4EventStackExtend extends Pox4EventBase {
+  name: Pox4EventName.StackExtend;
   data: {
     /** String-quoted unsigned integer */
     extend_count: string;
@@ -737,8 +797,8 @@ export interface PoxEventStackExtend extends PoxEventBase {
   };
 }
 
-export interface PoxEventDelegateStx extends PoxEventBase {
-  name: PoxEventName.DelegateStx;
+export interface Pox4EventDelegateStx extends Pox4EventBase {
+  name: Pox4EventName.DelegateStx;
   data: {
     /** String-quoted unsigned integer */
     amount_ustx: string;
@@ -752,8 +812,8 @@ export interface PoxEventDelegateStx extends PoxEventBase {
   };
 }
 
-export interface PoxEventDelegateStackStx extends PoxEventBase {
-  name: PoxEventName.DelegateStackStx;
+export interface Pox4EventDelegateStackStx extends Pox4EventBase {
+  name: Pox4EventName.DelegateStackStx;
   data: {
     /** String-quoted unsigned integer */
     lock_amount: string;
@@ -771,8 +831,8 @@ export interface PoxEventDelegateStackStx extends PoxEventBase {
   };
 }
 
-export interface PoxEventDelegateStackIncrease extends PoxEventBase {
-  name: PoxEventName.DelegateStackIncrease;
+export interface Pox4EventDelegateStackIncrease extends Pox4EventBase {
+  name: Pox4EventName.DelegateStackIncrease;
   data: {
     /** String-quoted unsigned integer */
     increase_by: string;
@@ -786,8 +846,8 @@ export interface PoxEventDelegateStackIncrease extends PoxEventBase {
   };
 }
 
-export interface PoxEventDelegateStackExtend extends PoxEventBase {
-  name: PoxEventName.DelegateStackExtend;
+export interface Pox4EventDelegateStackExtend extends Pox4EventBase {
+  name: Pox4EventName.DelegateStackExtend;
   data: {
     /** String-quoted unsigned integer */
     unlock_burn_height: string;
@@ -801,8 +861,8 @@ export interface PoxEventDelegateStackExtend extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackAggregationCommit extends PoxEventBase {
-  name: PoxEventName.StackAggregationCommit;
+export interface Pox4EventStackAggregationCommit extends Pox4EventBase {
+  name: Pox4EventName.StackAggregationCommit;
   data: {
     /** String-quoted unsigned integer */
     reward_cycle: string;
@@ -817,8 +877,8 @@ export interface PoxEventStackAggregationCommit extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackAggregationCommitIndexed extends PoxEventBase {
-  name: PoxEventName.StackAggregationCommitIndexed;
+export interface Pox4EventStackAggregationCommitIndexed extends Pox4EventBase {
+  name: Pox4EventName.StackAggregationCommitIndexed;
   data: {
     /** String-quoted unsigned integer */
     reward_cycle: string;
@@ -833,8 +893,8 @@ export interface PoxEventStackAggregationCommitIndexed extends PoxEventBase {
   };
 }
 
-export interface PoxEventStackAggregationIncrease extends PoxEventBase {
-  name: PoxEventName.StackAggregationIncrease;
+export interface Pox4EventStackAggregationIncrease extends Pox4EventBase {
+  name: Pox4EventName.StackAggregationIncrease;
   data: {
     /** String-quoted unsigned integer */
     reward_cycle: string;
@@ -847,8 +907,8 @@ export interface PoxEventStackAggregationIncrease extends PoxEventBase {
   };
 }
 
-export interface PoxEventRevokeDelegateStx extends PoxEventBase {
-  name: PoxEventName.RevokeDelegateStx;
+export interface Pox4EventRevokeDelegateStx extends Pox4EventBase {
+  name: Pox4EventName.RevokeDelegateStx;
   data: {
     delegate_to: string;
     /** String-quoted unsigned integer or null */
@@ -858,16 +918,469 @@ export interface PoxEventRevokeDelegateStx extends PoxEventBase {
   };
 }
 
-export type DecodedPoxSyntheticEvent =
-  | PoxEventHandleUnlock
-  | PoxEventStackStx
-  | PoxEventStackIncrease
-  | PoxEventStackExtend
-  | PoxEventDelegateStx
-  | PoxEventDelegateStackStx
-  | PoxEventDelegateStackIncrease
-  | PoxEventDelegateStackExtend
-  | PoxEventStackAggregationCommit
-  | PoxEventStackAggregationCommitIndexed
-  | PoxEventStackAggregationIncrease
-  | PoxEventRevokeDelegateStx;
+export type Pox4Event =
+  | Pox4EventHandleUnlock
+  | Pox4EventStackStx
+  | Pox4EventStackIncrease
+  | Pox4EventStackExtend
+  | Pox4EventDelegateStx
+  | Pox4EventDelegateStackStx
+  | Pox4EventDelegateStackIncrease
+  | Pox4EventDelegateStackExtend
+  | Pox4EventStackAggregationCommit
+  | Pox4EventStackAggregationCommitIndexed
+  | Pox4EventStackAggregationIncrease
+  | Pox4EventRevokeDelegateStx;
+
+// ============================================================================
+// PoX Synthetic Event Types — pox-5
+//
+// PoX-5 events are emitted by explicit `(print { topic: "...", ... })` calls
+// in the contract source, so each event arrives as a flat Clarity tuple with
+// a `topic` ASCII string plus event-specific data. This is structurally
+// different from pox-2/3/4, where the Stacks node synthesizes a
+// `Response(Ok({ stacker, locked, ..., name, data }))` per stacking call.
+//
+// On the JS side every pox-5 event has the same outer shape
+// `{ name: string, data: { ... } }`; the per-event `data` payloads are
+// modeled below.
+// ============================================================================
+
+export enum Pox5EventName {
+  SetBondAdmin = 'set-bond-admin',
+  SetupBond = 'setup-bond',
+  AddToAllowlist = 'add-to-allowlist',
+  RegisterForBond = 'register-for-bond',
+  UpdateBondRegistration = 'update-bond-registration',
+  RegisterSigner = 'register-signer',
+  Stake = 'stake',
+  StakeUpdate = 'stake-update',
+  AnnounceL1EarlyExit = 'announce-l1-early-exit',
+  UnstakeSbtc = 'unstake-sbtc',
+  Unstake = 'unstake',
+  CalculateRewards = 'calculate-rewards',
+  BondDistribution = 'bond-distribution',
+  ClaimRewards = 'claim-rewards',
+  ClaimStakerRewardsForSigner = 'claim-staker-rewards-for-signer',
+  GrantSignerKey = 'grant-signer-key',
+  RevokeSignerGrant = 'revoke-signer-grant',
+  DisallowContractCaller = 'disallow-contract-caller',
+  AllowContractCaller = 'allow-contract-caller',
+}
+
+export interface Pox5EventBase {
+  /**
+   * Discriminant identifying the source PoX contract version. For events
+   * decoded from pox-5 this is always `'pox5'` — earlier-contract events
+   * come back as {@link Pox4Event} instead.
+   */
+  pox_version: 'pox5';
+}
+
+export interface Pox5EventSetBondAdmin extends Pox5EventBase {
+  name: Pox5EventName.SetBondAdmin;
+  data: {
+    /** c32 principal of the previous bond admin. */
+    old_admin: string;
+    /** c32 principal of the new bond admin. */
+    new_admin: string;
+  };
+}
+
+export interface Pox5EventSetupBond extends Pox5EventBase {
+  name: Pox5EventName.SetupBond;
+  data: {
+    /** String-quoted unsigned integer */
+    bond_index: string;
+    /** String-quoted unsigned integer (basis points) */
+    target_rate: string;
+    /** String-quoted unsigned integer */
+    stx_value_ratio: string;
+    /** String-quoted unsigned integer */
+    min_ustx_ratio: string;
+    /**
+     * `(buff 683)` hex string. Bitcoin script subscript guarding the
+     * early-exit (`OP_ELSE`) branch of the L1 lockup (e.g. `<pubkey>
+     * OP_CHECKSIG`, or an M-of-N `CHECKMULTISIG` template).
+     */
+    early_unlock_bytes: string;
+    /** String-quoted unsigned integer */
+    first_reward_cycle: string;
+    /** String-quoted unsigned integer */
+    bond_start_height: string;
+    /** String-quoted unsigned integer */
+    unlock_cycle: string;
+    /** String-quoted unsigned integer */
+    unlock_burn_height: string;
+  };
+}
+
+export interface Pox5EventAddToAllowlist extends Pox5EventBase {
+  name: Pox5EventName.AddToAllowlist;
+  data: {
+    /** c32 principal of the staker being added to a bond's allowlist. */
+    staker: string;
+    /** String-quoted unsigned integer */
+    max_sats: string;
+    /** String-quoted unsigned integer */
+    bond_index: string;
+  };
+}
+
+/** One proven L1 output in a `register-for-bond` `btc_lockup`. */
+export interface Pox5BtcLockupTx {
+  /** Reversed (big-endian) txid as a `0x`-prefixed hex string. */
+  txid: string;
+  /** String-quoted unsigned integer */
+  output_index: string;
+}
+
+/** The `btc_lockup` sub-object of a `register-for-bond` event. */
+export interface Pox5BtcLockup {
+  /** `'l1'` for a Bitcoin L1 lockup, `'l2'` for an sBTC lockup. */
+  type: string;
+  /**
+   * The proven L1 outputs for an `'l1'` lockup, or `null` for an `'l2'`
+   * (sBTC) lockup.
+   */
+  txs: Pox5BtcLockupTx[] | null;
+}
+
+export interface Pox5EventRegisterForBond extends Pox5EventBase {
+  name: Pox5EventName.RegisterForBond;
+  data: {
+    /** c32 principal */
+    signer: string;
+    /** c32 principal */
+    staker: string;
+    /** String-quoted unsigned integer */
+    amount_ustx: string;
+    /** String-quoted unsigned integer */
+    sats_total: string;
+    /** String-quoted unsigned integer */
+    bond_index: string;
+    /** String-quoted unsigned integer */
+    first_reward_cycle: string;
+    /** String-quoted unsigned integer */
+    unlock_burn_height: string;
+    /** String-quoted unsigned integer */
+    unlock_cycle: string;
+    /** True if the participant proved an L1 BTC lockup; false if they locked sBTC. */
+    is_l1_lock: boolean;
+    /** How the BTC was locked (L1 proof outputs vs. sBTC). */
+    btc_lockup: Pox5BtcLockup;
+  };
+}
+
+export interface Pox5EventUpdateBondRegistration extends Pox5EventBase {
+  name: Pox5EventName.UpdateBondRegistration;
+  data: {
+    /** c32 principal */
+    staker: string;
+    /** c32 principal of the new signer */
+    signer: string;
+    /** c32 principal of the previous signer */
+    old_signer: string;
+    /** String-quoted unsigned integer */
+    bond_index: string;
+    /** String-quoted unsigned integer */
+    amount_ustx: string;
+    /** String-quoted unsigned integer */
+    amount_sats: string;
+    /** String-quoted unsigned integer */
+    first_reward_cycle: string;
+    /** String-quoted unsigned integer */
+    num_cycles: string;
+    /** True if the participant's stake is an L1 BTC lockup. */
+    is_l1_lock: boolean;
+  };
+}
+
+export interface Pox5EventRegisterSigner extends Pox5EventBase {
+  name: Pox5EventName.RegisterSigner;
+  data: {
+    /** c32 principal */
+    signer: string;
+    /** `(buff 33)` hex string — compressed secp256k1 public key. */
+    signer_key: string;
+  };
+}
+
+export interface Pox5EventStake extends Pox5EventBase {
+  name: Pox5EventName.Stake;
+  data: {
+    /** c32 principal */
+    signer: string;
+    /** c32 principal */
+    staker: string;
+    /** String-quoted unsigned integer */
+    amount_ustx: string;
+    /** String-quoted unsigned integer */
+    num_cycles: string;
+    /** String-quoted unsigned integer */
+    first_reward_cycle: string;
+    /** String-quoted unsigned integer */
+    unlock_burn_height: string;
+    /** String-quoted unsigned integer */
+    unlock_cycle: string;
+  };
+}
+
+export interface Pox5EventStakeUpdate extends Pox5EventBase {
+  name: Pox5EventName.StakeUpdate;
+  data: {
+    /** String-quoted unsigned integer */
+    unlock_burn_height: string;
+    /** c32 principal */
+    staker: string;
+    /** c32 principal of the new signer */
+    signer: string;
+    /** c32 principal of the previous signer */
+    old_signer: string;
+    /** String-quoted unsigned integer (the previous unlock cycle before extension) */
+    prev_unlock_height: string;
+    /** String-quoted unsigned integer */
+    unlock_cycle: string;
+    /** String-quoted unsigned integer */
+    num_cycles: string;
+    /** String-quoted unsigned integer — total locked amount after this update */
+    amount_ustx: string;
+    /** String-quoted unsigned integer */
+    amount_increase: string;
+    /** String-quoted unsigned integer */
+    cycles_to_extend: string;
+  };
+}
+
+export interface Pox5EventAnnounceL1EarlyExit extends Pox5EventBase {
+  name: Pox5EventName.AnnounceL1EarlyExit;
+  data: {
+    /** c32 principal */
+    staker: string;
+    /** c32 principal */
+    signer: string;
+    /** String-quoted unsigned integer */
+    bond_index: string;
+    /** String-quoted unsigned integer */
+    amount_sats_released: string;
+  };
+}
+
+export interface Pox5EventUnstakeSbtc extends Pox5EventBase {
+  name: Pox5EventName.UnstakeSbtc;
+  data: {
+    /** c32 principal */
+    staker: string;
+    /** c32 principal */
+    signer: string;
+    /** String-quoted unsigned integer */
+    bond_index: string;
+    /** String-quoted unsigned integer */
+    amount_withdrawn_sats: string;
+    /** String-quoted unsigned integer — sBTC shares remaining after withdrawal */
+    new_amount_sats: string;
+  };
+}
+
+export interface Pox5EventUnstake extends Pox5EventBase {
+  name: Pox5EventName.Unstake;
+  data: {
+    /** c32 principal */
+    staker: string;
+    /** c32 principal */
+    signer: string;
+    /** String-quoted unsigned integer */
+    amount_ustx: string;
+    /** String-quoted unsigned integer */
+    first_reward_cycle: string;
+    /** String-quoted unsigned integer */
+    unlock_cycle: string;
+    /** String-quoted unsigned integer */
+    unlock_burn_height: string;
+  };
+}
+
+/**
+ * Logged once per `calculate-rewards` call, after all per-bond distributions
+ * have been folded and the STX reward cycle accounting has been committed.
+ */
+export interface Pox5EventCalculateRewards extends Pox5EventBase {
+  name: Pox5EventName.CalculateRewards;
+  data: {
+    /** Array of string-quoted unsigned integers (bond indices being settled) */
+    bond_periods: string[];
+    /** String-quoted unsigned integer */
+    calculation_height: string;
+    /** String-quoted unsigned integer — total new rewards accrued since the last calculation. */
+    gross_accrued_rewards: string;
+    /** String-quoted unsigned integer — portion of `gross_accrued_rewards` paid out to bonds. */
+    total_bond_rewards: string;
+    /** String-quoted unsigned integer — amount added to the reserve this calculation. */
+    reserve_deposit: string;
+    /** String-quoted unsigned integer — reserve balance after `reserve_deposit` was applied. */
+    reserve_balance: string;
+    /** String-quoted unsigned integer */
+    stx_cycle: string;
+    /** String-quoted unsigned integer — rewards allocated to STX stakers for the cycle. */
+    total_stx_staker_rewards: string;
+    /** String-quoted unsigned integer */
+    cycle_staked_ustx: string;
+    /** String-quoted unsigned integer — per-uSTX rewards accrued this calculation (zero when no STX is staked). */
+    accrued_rewards_per_ustx: string;
+    /** String-quoted unsigned integer — running per-uSTX reward total for the cycle after this calculation. */
+    cumulative_rewards_per_ustx: string;
+  };
+}
+
+export interface Pox5EventBondDistribution extends Pox5EventBase {
+  name: Pox5EventName.BondDistribution;
+  data: {
+    /** String-quoted unsigned integer */
+    bond_index: string;
+    /** String-quoted unsigned integer */
+    target_yield: string;
+    /** String-quoted unsigned integer — rewards earned by this bond this calculation. */
+    bond_rewards: string;
+    /** String-quoted unsigned integer */
+    bond_staked_sats: string;
+    /** String-quoted unsigned integer — per-sat rewards accrued this calculation. */
+    accrued_rewards_per_sat: string;
+    /** String-quoted unsigned integer — running per-sat reward total for the bond after this calculation. */
+    cumulative_rewards_per_sat: string;
+  };
+}
+
+/** Sub-tuple emitted under `stx_rewards` in `claim-rewards` events. */
+export interface Pox5ClaimRewardsInfo {
+  /** String-quoted unsigned integer */
+  earned: string;
+  /** String-quoted unsigned integer */
+  rewards_per_token: string;
+}
+
+/** One entry in the `bond_rewards` list of a `claim-rewards` event. */
+export interface Pox5BondRewardsInfo extends Pox5ClaimRewardsInfo {
+  /** String-quoted unsigned integer */
+  bond_index: string;
+}
+
+export interface Pox5EventClaimRewards extends Pox5EventBase {
+  name: Pox5EventName.ClaimRewards;
+  data: {
+    /** c32 principal of the signer manager that claimed. */
+    signer_manager: string;
+    /** String-quoted unsigned integer */
+    reward_cycle: string;
+    stx_rewards: Pox5ClaimRewardsInfo;
+    bond_rewards: Pox5BondRewardsInfo[];
+    /** String-quoted unsigned integer */
+    bond_totals: string;
+    /** String-quoted unsigned integer */
+    total_rewards: string;
+  };
+}
+
+export interface Pox5EventClaimStakerRewardsForSigner extends Pox5EventBase {
+  name: Pox5EventName.ClaimStakerRewardsForSigner;
+  data: {
+    /** c32 principal of the signer manager. */
+    signer_manager: string;
+    /** c32 principal of the staker. */
+    staker: string;
+    /** String-quoted unsigned integer */
+    reward_cycle: string;
+    /**
+     * String-quoted unsigned integer for bond rewards, or `null` for
+     * STX-only staking rewards.
+     */
+    bond_index: string | null;
+    /** String-quoted unsigned integer */
+    rewards_claimed: string;
+  };
+}
+
+export interface Pox5EventGrantSignerKey extends Pox5EventBase {
+  name: Pox5EventName.GrantSignerKey;
+  data: {
+    /** `(buff 33)` hex string — compressed secp256k1 public key. */
+    signer_key: string;
+    /** c32 principal of the signer manager. */
+    signer_manager: string;
+    /** String-quoted unsigned integer */
+    auth_id: string;
+  };
+}
+
+export interface Pox5EventRevokeSignerGrant extends Pox5EventBase {
+  name: Pox5EventName.RevokeSignerGrant;
+  data: {
+    /** `(buff 33)` hex string — compressed secp256k1 public key. */
+    signer_key: string;
+    /** c32 principal of the signer manager. */
+    signer_manager: string;
+  };
+}
+
+export interface Pox5EventDisallowContractCaller extends Pox5EventBase {
+  name: Pox5EventName.DisallowContractCaller;
+  data: {
+    /** c32 principal of the tx-sender that revoked the allowance. */
+    sender: string;
+    /** c32 principal of the contract-caller whose allowance was removed. */
+    contract_caller: string;
+  };
+}
+
+export interface Pox5EventAllowContractCaller extends Pox5EventBase {
+  name: Pox5EventName.AllowContractCaller;
+  data: {
+    /** c32 principal of the tx-sender that granted the allowance. */
+    sender: string;
+    /** c32 principal of the allowed contract-caller. */
+    contract_caller: string;
+    /**
+     * String-quoted unsigned integer burn height at which the allowance
+     * expires, or `null` if it never expires.
+     */
+    until_burn_ht: string | null;
+  };
+}
+
+export type Pox5Event =
+  | Pox5EventSetBondAdmin
+  | Pox5EventSetupBond
+  | Pox5EventAddToAllowlist
+  | Pox5EventRegisterForBond
+  | Pox5EventUpdateBondRegistration
+  | Pox5EventRegisterSigner
+  | Pox5EventStake
+  | Pox5EventStakeUpdate
+  | Pox5EventAnnounceL1EarlyExit
+  | Pox5EventUnstakeSbtc
+  | Pox5EventUnstake
+  | Pox5EventCalculateRewards
+  | Pox5EventBondDistribution
+  | Pox5EventClaimRewards
+  | Pox5EventClaimStakerRewardsForSigner
+  | Pox5EventGrantSignerKey
+  | Pox5EventRevokeSignerGrant
+  | Pox5EventDisallowContractCaller
+  | Pox5EventAllowContractCaller;
+
+// ============================================================================
+// PoX Synthetic Event — combined union
+// ============================================================================
+
+/**
+ * Any decoded PoX synthetic event, regardless of the source contract version.
+ *
+ * Two discriminants are available; use whichever fits the call site:
+ *
+ * - `event.pox_version` — `'pox4'` or `'pox5'`. Use this when you only care
+ *   which contract family the event came from (e.g. routing to a per-version
+ *   handler).
+ * - `event.name` — the specific event-name string literal. The pox-4 and
+ *   pox-5 name sets don't overlap, so a single switch on `name` narrows
+ *   all the way down to the per-event interface.
+ */
+export type PoxEvent = Pox4Event | Pox5Event;

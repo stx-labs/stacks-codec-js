@@ -5,7 +5,7 @@ import type {
   DecodedStacksBlockResult,
   ClarityValue,
   ClarityValueAbstract,
-  DecodedPoxSyntheticEvent,
+  PoxEvent,
 } from './index.js';
 
 export function getVersion(): string;
@@ -72,20 +72,29 @@ export function stacksAddressFromParts(version: number, hash160: string | Buffer
 export function memoToString(memo: string | Buffer): string;
 
 /**
- * Decode a serialized Clarity value representing a PoX synthetic print event.
+ * Decode a serialized Clarity value representing a PoX synthetic event.
+ *
+ * The native runtime sniffs the Clarity value's shape and routes it to the
+ * appropriate per-version decoder:
+ *
+ * - A flat tuple with a `topic` ASCII field → pox-5 event (returns a
+ *   {@link Pox5Event}).
+ * - A `Response(Ok({ stacker, locked, ..., name, data }))` tuple →
+ *   pox-2 / pox-3 / pox-4 event (returns a {@link Pox4Event}).
+ * - Anything else → `null`. This includes pox-2/3/4 `Response(Err _)`
+ *   payloads from failed stacking calls.
+ *
+ * Narrow the result on `event.name` (a string-literal field present on every
+ * variant). The pox-4 and pox-5 name sets don't overlap, so a single switch
+ * over `name` is enough to discriminate.
+ *
  * @param arg - Hex string or Buffer containing the serialized Clarity value
- * @param network - The Stacks network type
- * @returns The decoded PoX event, or null if the Clarity value is a ResponseErr
+ * @param network - The Stacks network type (used only by the pox-4 decoder
+ *   when encoding pox-addr bytes into a BTC address; ignored by pox-5).
+ * @returns The decoded PoX event, or `null` if the Clarity value isn't a
+ *   recognized event shape.
  */
 export function decodePoxSyntheticEvent(
   arg: string | Buffer,
   network: 'mainnet' | 'testnet' | 'devnet' | 'mocknet'
-): DecodedPoxSyntheticEvent | null;
-
-export function startProfiler(): string;
-
-export function stopProfiler(): Buffer;
-
-export function createProfiler(): () => Buffer;
-
-export function perfTestC32Encode(): Buffer;
+): PoxEvent | null;

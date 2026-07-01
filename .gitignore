@@ -9,3 +9,4 @@ perf-tests/decode-post-conditions/results
 perf-tests/encode-stx-address/results
 perf-tests/decode-contract-call-args/results
 .DS_Store
+.scratch
