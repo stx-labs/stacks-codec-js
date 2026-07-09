@@ -22,10 +22,19 @@ impl NeonJsSerialize for Encode<'_, NakamotoBlock> {
         Encode(&block.header).neon_js_serialize(cx, &header_obj, &())?;
         obj.set(cx, "header", header_obj)?;
 
-        let txs_array = JsArray::new(cx, block.txs.len());
-        for (i, tx) in block.txs.iter().enumerate() {
+        // Upstream made `NakamotoBlock::txs` private; `txs()` now yields
+        // `TxToProcess` wrappers that carry each tx's problematic-marker state.
+        // We only need the raw transactions here, so unwrap each via the
+        // `tx_ignoring_problematic_state()` escape hatch (order is preserved,
+        // problematic txs included — matching the previous `block.txs` field).
+        let txs_array = JsArray::new(cx, block.tx_count());
+        for (i, tx_to_process) in block.txs().enumerate() {
             let tx_obj = cx.empty_object();
-            Encode(tx).neon_js_serialize(cx, &tx_obj, &())?;
+            Encode(tx_to_process.tx_ignoring_problematic_state()).neon_js_serialize(
+                cx,
+                &tx_obj,
+                &(),
+            )?;
             txs_array.set(cx, i as u32, tx_obj)?;
         }
         obj.set(cx, "txs", txs_array)?;

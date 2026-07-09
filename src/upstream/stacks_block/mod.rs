@@ -127,7 +127,7 @@ mod tests {
             encode_hex(&block.header.block_id().0).as_ref(),
             "0x05b7fbc03e541271a29baf21ad43e68e48070df018ebe5baa13892f3828be9bd"
         );
-        assert_eq!(block.txs.len(), 1);
+        assert_eq!(block.tx_count(), 1);
         assert_eq!(cursor.position() as usize, data.len());
     }
 }

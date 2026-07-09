@@ -6,6 +6,7 @@ import type {
   ClarityValue,
   ClarityValueAbstract,
   PoxEvent,
+  SignerMessage,
 } from './index.js';
 
 export function getVersion(): string;
@@ -98,3 +99,18 @@ export function decodePoxSyntheticEvent(
   arg: string | Buffer,
   network: 'mainnet' | 'testnet' | 'devnet' | 'mocknet'
 ): PoxEvent | null;
+
+/**
+ * Decode a StackerDB signer message from its consensus wire format, as stored
+ * in the `.signers-*` StackerDB contracts / emitted over the signer network.
+ *
+ * The block-related messages consumers index are fully decoded
+ * (`block_proposal`, `block_response`, `block_pushed`, `block_pre_commit`).
+ * The epoch-2.5 `mock_*` messages and `state_machine_update` are recognized
+ * but surfaced as an `unsupported` shape carrying only their discriminant.
+ *
+ * Discriminate on `message.type_name` (or the numeric `type_id`).
+ *
+ * @param arg - Hex string or Buffer containing the serialized signer message
+ */
+export function decodeSignerMessage(arg: string | Buffer): SignerMessage;

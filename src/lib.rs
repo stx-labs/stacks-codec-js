@@ -12,6 +12,7 @@ use crate::upstream::clarity_value::{
     decode_clarity_value_type_name,
 };
 use crate::upstream::post_condition::decode_tx_post_conditions;
+use crate::upstream::signer_message::decode_signer_message;
 use crate::upstream::stacks_block::{decode_nakamoto_block, decode_stacks_block};
 use crate::upstream::stacks_tx::decode_transaction;
 
@@ -54,6 +55,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("stacksAddressFromParts", stacks_address_from_parts)?;
     cx.export_function("memoToString", memo_to_string)?;
     cx.export_function("decodePoxSyntheticEvent", decode_pox_event)?;
+    cx.export_function("decodeSignerMessage", decode_signer_message)?;
 
     Ok(())
 }

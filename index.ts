@@ -1384,3 +1384,178 @@ export type Pox5Event =
  *   all the way down to the per-event interface.
  */
 export type PoxEvent = Pox4Event | Pox5Event;
+
+// ============================================================================
+// Signer messages (libsigner `SignerMessage`)
+// ============================================================================
+
+export enum SignerMessageTypeID {
+  BlockProposal = 0,
+  BlockResponse = 1,
+  BlockPushed = 2,
+  MockProposal = 3,
+  MockSignature = 4,
+  MockBlock = 5,
+  StateMachineUpdate = 6,
+  BlockPreCommit = 7,
+}
+
+export interface SignerMessageBase {
+  type_id: SignerMessageTypeID;
+  type_name: string;
+}
+
+/** Signer message metadata appended to block responses. */
+export interface SignerMessageMetadata {
+  server_version: string;
+}
+
+/** Block proposal from a miner for signers to observe and sign. */
+export interface SignerMessageBlockProposal extends SignerMessageBase {
+  type_id: SignerMessageTypeID.BlockProposal;
+  type_name: 'block_proposal';
+  block_proposal: {
+    block: DecodedNakamotoBlockResult;
+    /** String-quoted unsigned integer */
+    burn_height: string;
+    /** String-quoted unsigned integer */
+    reward_cycle: string;
+    block_proposal_data: BlockProposalData;
+  };
+}
+
+export interface BlockProposalData {
+  version: number;
+  server_version: string;
+  miner_diagnostic_data: MinerDiagnosticData | null;
+  /** Hex string of any trailing bytes from a future version (empty `0x` if none). */
+  unknown_bytes: string;
+}
+
+export interface MinerDiagnosticData {
+  /** String-quoted unsigned integer */
+  burnchain_tip_height: string;
+  /** Hex string (20 bytes) */
+  burnchain_tip_consensus_hash: string;
+  /** Hex string (32 bytes) */
+  burnchain_tip_header_hash: string;
+  /** String-quoted unsigned integer */
+  tenure_extend_time_stamp: string;
+  /** String-quoted unsigned integer */
+  read_count_extend_timestamp: string;
+  mining_reason_id: number;
+  mining_reason_name: 'block_found' | 'extended' | 'read_count_extend';
+}
+
+/** Block response (accept or reject) from a signer. */
+export interface SignerMessageBlockResponse extends SignerMessageBase {
+  type_id: SignerMessageTypeID.BlockResponse;
+  type_name: 'block_response';
+  block_response: BlockResponseAccepted | BlockResponseRejected;
+}
+
+export interface BlockResponseAccepted {
+  response_type: 'accepted';
+  /** Hex string (32 bytes) */
+  signer_signature_hash: string;
+  /** Hex string (65 bytes) */
+  signature: string;
+  metadata: SignerMessageMetadata;
+  response_data: BlockResponseData;
+}
+
+export interface BlockResponseRejected {
+  response_type: 'rejected';
+  reason: string;
+  reason_code: RejectCode;
+  /** Hex string (32 bytes) */
+  signer_signature_hash: string;
+  /** Hex string (65 bytes) */
+  signature: string;
+  chain_id: number;
+  metadata: SignerMessageMetadata;
+  response_data: BlockResponseData;
+}
+
+export interface BlockResponseData {
+  version: number;
+  /** String-quoted unsigned integer */
+  tenure_extend_timestamp: string;
+  reject_reason: RejectReason;
+  /** String-quoted unsigned integer */
+  tenure_extend_read_count_timestamp: string;
+  /** Hex string (32 bytes), or `null` if no transaction caused a failure. */
+  failed_txid: string | null;
+  /** Hex string of any trailing bytes from a future version (empty `0x` if none). */
+  unknown_bytes: string;
+}
+
+/** The reason code on a `rejected` block response (`reason_code` field). */
+export interface RejectCode {
+  reject_code_name:
+    | 'validation_failed'
+    | 'no_sortition_view'
+    | 'connectivity_issues'
+    | 'rejected_in_prior_round'
+    | 'sortition_view_mismatch'
+    | 'testing_directive';
+  /** Present when `reject_code_name === 'validation_failed'`. */
+  validate_reject_code?: number;
+  validate_reject_code_name?: string;
+  /** Present when `reject_code_name === 'connectivity_issues'`. */
+  message?: string;
+}
+
+/** The versioned rejection detail carried in `response_data.reject_reason`. */
+export interface RejectReason {
+  reject_reason_name: string;
+  /** Present when `reject_reason_name === 'validation_failed'`. */
+  validate_reject_code?: number;
+  validate_reject_code_name?: string;
+  /** Present when `reject_reason_name === 'connectivity_issues'`. */
+  message?: string;
+  /** Present when `reject_reason_name === 'consensus_hash_mismatch'`. */
+  expected_consensus_hash?: string;
+  actual_consensus_hash?: string;
+  /** Present when `reject_reason_name === 'unknown'`. */
+  unknown_code?: number;
+}
+
+/** A block pushed from a miner to the signer set. */
+export interface SignerMessageBlockPushed extends SignerMessageBase {
+  type_id: SignerMessageTypeID.BlockPushed;
+  type_name: 'block_pushed';
+  block_pushed: DecodedNakamotoBlockResult;
+}
+
+/** A pre-commit message from a signer for other signers to observe. */
+export interface SignerMessageBlockPreCommit extends SignerMessageBase {
+  type_id: SignerMessageTypeID.BlockPreCommit;
+  type_name: 'block_pre_commit';
+  block_pre_commit: {
+    /** Hex string (32 bytes) */
+    signer_signature_hash: string;
+  };
+}
+
+/**
+ * Recognized-but-unsupported signer messages: the epoch-2.5 `mock_*` types and
+ * `state_machine_update`. Only the discriminant is decoded (plus an
+ * `unsupported: true` marker).
+ */
+export interface SignerMessageUnsupported extends SignerMessageBase {
+  type_id:
+    | SignerMessageTypeID.MockProposal
+    | SignerMessageTypeID.MockSignature
+    | SignerMessageTypeID.MockBlock
+    | SignerMessageTypeID.StateMachineUpdate;
+  type_name: 'mock_proposal' | 'mock_signature' | 'mock_block' | 'state_machine_update';
+  unsupported: true;
+}
+
+export type SignerMessage =
+  | SignerMessageBlockProposal
+  | SignerMessageBlockResponse
+  | SignerMessageBlockPushed
+  | SignerMessageBlockPreCommit
+  | SignerMessageUnsupported;

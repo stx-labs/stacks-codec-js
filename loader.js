@@ -23,6 +23,7 @@ module.exports.decodeClarityValueToPrincipal = addon.decodeClarityValueToPrincip
 module.exports.stacksAddressFromParts = addon.stacksAddressFromParts;
 module.exports.memoToString = addon.memoToString;
 module.exports.decodePoxSyntheticEvent = addon.decodePoxSyntheticEvent;
+module.exports.decodeSignerMessage = addon.decodeSignerMessage;
 module.exports.startProfiler = addon.startProfiler;
 module.exports.stopProfiler = addon.stopProfiler;
 module.exports.createProfiler = addon.createProfiler;

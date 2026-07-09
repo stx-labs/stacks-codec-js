@@ -20,5 +20,6 @@
 pub mod address;
 pub mod clarity_value;
 pub mod post_condition;
+pub mod signer_message;
 pub mod stacks_block;
 pub mod stacks_tx;
