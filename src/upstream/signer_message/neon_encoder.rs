@@ -6,8 +6,8 @@
 //! The JS shape is a discriminated union keyed by `type_id` (the wire
 //! `SignerMessageTypePrefix` byte) plus a human-readable `type_name`. Each
 //! decoded variant nests its data under a variant-named key; the recognized-
-//! but-unsupported variants (`Mock*`, `StateMachineUpdate`) carry only the
-//! discriminant.
+//! but-unsupported variants (`Mock*`, `StateMachineUpdate`) include only the
+//! discriminant fields plus `unsupported: true`.
 
 use blockstack_lib::net::api::postblock_proposal::ValidateRejectCode;
 use libsigner::v0::messages::{
@@ -73,7 +73,7 @@ impl NeonJsSerialize for Encode<'_, SignerMessage> {
                 precommit_obj.set(cx, "signer_signature_hash", hash)?;
                 obj.set(cx, "block_pre_commit", precommit_obj)?;
             }
-            // Recognized but out of scope: surface the discriminant only.
+            // Recognized but out of scope: surface the discriminant + `unsupported: true`.
             SignerMessage::MockProposal(_)
             | SignerMessage::MockSignature(_)
             | SignerMessage::MockBlock(_)

@@ -12,7 +12,7 @@
 //! Scope: the block-related messages that indexers consume are fully decoded
 //! (`BlockProposal`, `BlockResponse`, `BlockPushed`, `BlockPreCommit`). The
 //! epoch-2.5 `Mock*` messages and `StateMachineUpdate` are recognized but
-//! surfaced as an `unsupported` shape (their `type_id` / `type_name` only).
+//! surfaced as `{ type_id, type_name, unsupported: true }` for now.
 
 use std::io::Cursor;
 
