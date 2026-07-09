@@ -38,6 +38,9 @@ stacks-codec = { git = "https://github.com/stacks-network/stacks-core", rev = "7
 stacks_common = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core", rev = "7d5b25b9d227c52aa34afb8b712a1cd351c08d88", default-features = false }
 clarity = { git = "https://github.com/stacks-network/stacks-core", rev = "7d5b25b9d227c52aa34afb8b712a1cd351c08d88", default-features = false }
 stackslib = { git = "https://github.com/stacks-network/stacks-core", rev = "7d5b25b9d227c52aa34afb8b712a1cd351c08d88" }
+# Signer wire-format messages (`SignerMessage` and friends). Lives in its own
+# upstream crate; not re-exported through stackslib.
+libsigner = { git = "https://github.com/stacks-network/stacks-core", rev = "7d5b25b9d227c52aa34afb8b712a1cd351c08d88" }
 
 # === This crate's own dependencies ===
 git-version = "0.3.5"

@@ -32,7 +32,7 @@ UPSTREAM_URL="https://github.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}"
 
 # Cargo package names whose rev we manage in Cargo.toml. Keep this in sync with
 # the [dependencies] section.
-MANAGED_PACKAGES=(stacks-codec stacks-common clarity stackslib)
+MANAGED_PACKAGES=(stacks-codec stacks-common clarity stackslib libsigner)
 
 target_ref="${1:-develop}"
 
