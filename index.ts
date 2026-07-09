@@ -1542,6 +1542,7 @@ export interface SignerMessageBlockPreCommit extends SignerMessageBase {
  * Recognized-but-unsupported signer messages: the epoch-2.5 `mock_*` types and
  * `state_machine_update`. Only the discriminant is decoded (plus an
  * `unsupported: true` marker).
+ */
 export interface SignerMessageUnsupported extends SignerMessageBase {
   type_id:
     | SignerMessageTypeID.MockProposal
