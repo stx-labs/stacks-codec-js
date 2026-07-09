@@ -187,7 +187,7 @@ checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
 [[package]]
 name = "clarity"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core?rev=7d5b25b9d227c52aa34afb8b712a1cd351c08d88#7d5b25b9d227c52aa34afb8b712a1cd351c08d88"
+source = "git+https://github.com/stacks-network/stacks-core?rev=7a2ce1d850677dbd4636067868c06e9da7c05f26#7a2ce1d850677dbd4636067868c06e9da7c05f26"
 dependencies = [
  "clarity-types",
  "integer-sqrt",
@@ -205,7 +205,7 @@ dependencies = [
 [[package]]
 name = "clarity-types"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core?rev=7d5b25b9d227c52aa34afb8b712a1cd351c08d88#7d5b25b9d227c52aa34afb8b712a1cd351c08d88"
+source = "git+https://github.com/stacks-network/stacks-core?rev=7a2ce1d850677dbd4636067868c06e9da7c05f26#7a2ce1d850677dbd4636067868c06e9da7c05f26"
 dependencies = [
  "lazy_static",
  "regex",
@@ -935,7 +935,7 @@ dependencies = [
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core?rev=7d5b25b9d227c52aa34afb8b712a1cd351c08d88#7d5b25b9d227c52aa34afb8b712a1cd351c08d88"
+source = "git+https://github.com/stacks-network/stacks-core?rev=7a2ce1d850677dbd4636067868c06e9da7c05f26#7a2ce1d850677dbd4636067868c06e9da7c05f26"
 dependencies = [
  "clarity",
  "hashbrown 0.15.5",
@@ -965,7 +965,7 @@ dependencies = [
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core?rev=7d5b25b9d227c52aa34afb8b712a1cd351c08d88#7d5b25b9d227c52aa34afb8b712a1cd351c08d88"
+source = "git+https://github.com/stacks-network/stacks-core?rev=7a2ce1d850677dbd4636067868c06e9da7c05f26#7a2ce1d850677dbd4636067868c06e9da7c05f26"
 dependencies = [
  "clarity",
  "serde",
@@ -1188,7 +1188,7 @@ checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network/stacks-core?rev=7d5b25b9d227c52aa34afb8b712a1cd351c08d88#7d5b25b9d227c52aa34afb8b712a1cd351c08d88"
+source = "git+https://github.com/stacks-network/stacks-core?rev=7a2ce1d850677dbd4636067868c06e9da7c05f26#7a2ce1d850677dbd4636067868c06e9da7c05f26"
 dependencies = [
  "clarity",
  "slog",
@@ -1591,7 +1591,7 @@ dependencies = [
 [[package]]
 name = "stacks-codec"
 version = "0.1.0"
-source = "git+https://github.com/stacks-network/stacks-core?rev=7d5b25b9d227c52aa34afb8b712a1cd351c08d88#7d5b25b9d227c52aa34afb8b712a1cd351c08d88"
+source = "git+https://github.com/stacks-network/stacks-core?rev=7a2ce1d850677dbd4636067868c06e9da7c05f26#7a2ce1d850677dbd4636067868c06e9da7c05f26"
 dependencies = [
  "clarity-types",
  "serde",
@@ -1602,7 +1602,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core?rev=7d5b25b9d227c52aa34afb8b712a1cd351c08d88#7d5b25b9d227c52aa34afb8b712a1cd351c08d88"
+source = "git+https://github.com/stacks-network/stacks-core?rev=7a2ce1d850677dbd4636067868c06e9da7c05f26#7a2ce1d850677dbd4636067868c06e9da7c05f26"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -1652,7 +1652,7 @@ dependencies = [
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core?rev=7d5b25b9d227c52aa34afb8b712a1cd351c08d88#7d5b25b9d227c52aa34afb8b712a1cd351c08d88"
+source = "git+https://github.com/stacks-network/stacks-core?rev=7a2ce1d850677dbd4636067868c06e9da7c05f26#7a2ce1d850677dbd4636067868c06e9da7c05f26"
 dependencies = [
  "clarity",
  "ed25519-dalek",

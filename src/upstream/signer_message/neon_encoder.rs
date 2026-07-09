@@ -416,6 +416,7 @@ impl NeonJsSerialize for Encode<'_, RejectReason> {
             RejectReason::InvalidTenureExtend => "invalid_tenure_extend",
             RejectReason::IrrecoverablePubkeyHash => "irrecoverable_pubkey_hash",
             RejectReason::NoSignerConsensus => "no_signer_consensus",
+            RejectReason::ProblematicTransactions => "problematic_transactions",
             RejectReason::ConsensusHashMismatch { expected, actual } => {
                 let expected_str = cx.string(encode_hex(&expected.0));
                 obj.set(cx, "expected_consensus_hash", expected_str)?;
