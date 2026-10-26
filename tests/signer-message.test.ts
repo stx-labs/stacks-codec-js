@@ -44,4 +44,43 @@ describe('Signer message decoding', () => {
     expect(response.response_data.reject_reason.reject_reason_name).toBe('not_rejected');
     expect(response.response_data.failed_txid).toBeNull();
   });
+
+  // Fixtures generated from libsigner:
+  //   SignerMessage::BlockResponse(BlockResponse::rejected(
+  //     Sha512Trunc256Sum([0x03; 32]), <reason>,
+  //     &StacksPrivateKey::from_seed(&[0x01]), false,
+  //     1_700_000_000, 1_700_000_001))
+  it.each([
+    ['proposal-too-old', 'proposal_too_old', 18],
+    ['reward-cycle-retired', 'reward_cycle_retired', 19],
+  ])('decodes a rejected block response (%s)', (fixture, reasonName, wireCode) => {
+    const hex = fs
+      .readFileSync(
+        path.join(__dirname, `fixtures/signer-message-block-response-rejected-${fixture}.hex`),
+        'utf8'
+      )
+      .trim();
+    // In the response data, the reject reason code byte sits between the two
+    // u64 tenure-extend timestamps; check the fixture really carries the new
+    // wire code rather than trusting the decoder alone.
+    expect(hex).toContain(`000000006553f100${wireCode.toString(16)}000000006553f101`);
+
+    const result = decodeSignerMessage(hex);
+
+    expect(result.type_id).toBe(SignerMessageTypeID.BlockResponse);
+    if (result.type_name !== 'block_response') throw new Error('wrong variant');
+
+    const response = result.block_response;
+    expect(response.response_type).toBe('rejected');
+    if (response.response_type !== 'rejected') throw new Error('expected rejected');
+
+    expect(response.signer_signature_hash).toBe('0x' + '03'.repeat(32));
+    expect(response.chain_id).toBe(0x80000000);
+    // libsigner maps reasons without a dedicated RejectCode to SortitionViewMismatch.
+    expect(response.reason_code.reject_code_name).toBe('sortition_view_mismatch');
+    expect(response.response_data.tenure_extend_timestamp).toBe('1700000000');
+    expect(response.response_data.tenure_extend_read_count_timestamp).toBe('1700000001');
+    expect(response.response_data.reject_reason).toEqual({ reject_reason_name: reasonName });
+    expect(response.response_data.failed_txid).toBeNull();
+  });
 });

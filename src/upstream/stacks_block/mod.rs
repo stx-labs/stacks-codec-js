@@ -51,7 +51,7 @@ pub fn decode_nakamoto_block(mut cx: FunctionContext) -> JsResult<JsObject> {
     let block = arg_as_bytes(&mut cx, 0, |val_bytes| {
         let mut cursor = Cursor::new(val_bytes);
         deserialize_nakamoto_block(&mut cursor)
-            .map_err(|e| format!("Failed to decode Nakamoto block: {:?}\n", &e))
+            .map_err(|e| format!("Failed to decode Nakamoto block: {:?}\n", e))
     })
     .or_else(|e| cx.throw_error(e))?;
 
@@ -69,7 +69,7 @@ pub fn decode_stacks_block(mut cx: FunctionContext) -> JsResult<JsObject> {
     let block = arg_as_bytes(&mut cx, 0, |val_bytes| {
         let mut cursor = Cursor::new(val_bytes);
         deserialize_stacks_block(&mut cursor)
-            .map_err(|e| format!("Failed to decode Stacks block: {:?}\n", &e))
+            .map_err(|e| format!("Failed to decode Stacks block: {:?}\n", e))
     })
     .or_else(|e| cx.throw_error(e))?;
 

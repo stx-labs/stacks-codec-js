@@ -4,7 +4,7 @@
 # canonical wire-format crates (stacks-codec, stacks-common, clarity, stackslib).
 #
 # Usage:
-#   scripts/update-stacks-core.sh                 # pin to latest develop HEAD
+#   scripts/update-stacks-core.sh                 # pin to latest main HEAD
 #   scripts/update-stacks-core.sh <rev|tag|sha>   # pin to an explicit ref
 #
 # What this script does:
@@ -34,7 +34,7 @@ UPSTREAM_URL="https://github.com/${UPSTREAM_OWNER}/${UPSTREAM_REPO}"
 # the [dependencies] section.
 MANAGED_PACKAGES=(stacks-codec stacks-common clarity stackslib libsigner)
 
-target_ref="${1:-develop}"
+target_ref="${1:-main}"
 
 echo "Resolving ${UPSTREAM_OWNER}/${UPSTREAM_REPO}@${target_ref} to a commit SHA..."
 

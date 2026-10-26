@@ -354,6 +354,7 @@ export enum ClarityVersion {
   Clarity4 = 4,
   Clarity5 = 5,
   Clarity6 = 6,
+  Clarity7 = 7,
 }
 
 export interface DecodedTxSpendingConditionSingleSig {
@@ -1508,6 +1509,15 @@ export interface RejectCode {
 
 /** The versioned rejection detail carried in `response_data.reject_reason`. */
 export interface RejectReason {
+  /**
+   * One of `validation_failed`, `no_sortition_view`, `connectivity_issues`,
+   * `rejected_in_prior_round`, `sortition_view_mismatch`, `testing_directive`,
+   * `reorg_not_allowed`, `invalid_bitvec`, `pubkey_hash_mismatch`, `invalid_miner`,
+   * `not_latest_sortition_winner`, `invalid_parent_block`, `duplicate_block_found`,
+   * `invalid_tenure_extend`, `irrecoverable_pubkey_hash`, `no_signer_consensus`,
+   * `consensus_hash_mismatch`, `problematic_transactions`, `proposal_too_old`,
+   * `reward_cycle_retired`, `not_rejected`, or `unknown`.
+   */
   reject_reason_name: string;
   /** Present when `reject_reason_name === 'validation_failed'`. */
   validate_reject_code?: number;
