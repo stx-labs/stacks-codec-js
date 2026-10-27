@@ -48,8 +48,6 @@ jobs:
     uses: ./.github/workflows/build.yml
     permissions:
       contents: read
-    with:
-      version: ${{ inputs.version }}
 
   publish-npm:
     needs: build
