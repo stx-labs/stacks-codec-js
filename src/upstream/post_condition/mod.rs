@@ -76,15 +76,15 @@ mod tests {
     use flate2::read::GzDecoder;
     use std::io::{prelude::*, BufReader};
 
-    const SAMPLED_POST_CONDITIONS: &'static [u8] =
+    const SAMPLED_POST_CONDITIONS: &[u8] =
         include_bytes!("../../../tests/fixtures/sampled-post-conditions.txt.gz");
 
     #[test]
     fn test_decode_samples() {
         let decoder = GzDecoder::new(SAMPLED_POST_CONDITIONS);
         let reader = BufReader::new(decoder);
-        for line in reader.lines().filter_map(|s| s.ok()) {
-            let input_bytes = decode_hex(line).unwrap();
+        for line in reader.lines() {
+            let input_bytes = decode_hex(line.unwrap()).unwrap();
             let post_condition_bytes = &input_bytes[5..];
             let post_condition_bytes_len = post_condition_bytes.len() as u64;
             let mut cursor = Cursor::new(post_condition_bytes);

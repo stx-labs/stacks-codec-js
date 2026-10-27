@@ -1,0 +1,247 @@
+name: Build
+
+# Builds the native addon for every supported platform and uploads one
+# artifact per target. Called by ci.yml and release.yml.
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version; when set, the commit is tagged locally so the addon reports it'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build_linux-x64-musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The native addon embeds `git describe` output; release builds run before
+      # the tag exists (it is created when the draft release is published).
+      - name: Tag release commit locally for version metadata
+        if: ${{ inputs.version != '' }}
+        run: git tag "v${{ inputs.version }}"
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Download x86_64-linux-musl-cross toolchain
+        run: curl -O -L -C - https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/x86_64-linux-musl-cross.tgz
+      - name: Install x86_64-linux-musl-cross toolchain
+        run: tar xf x86_64-linux-musl-cross.tgz
+      - name: Configure linux-x64-musl cross compile
+        run: |
+          echo "CC_x86_64_unknown_linux_musl=$(pwd)/x86_64-linux-musl-cross/bin/x86_64-linux-musl-gcc" >> $GITHUB_ENV
+          echo "CXX_x86_64_unknown_linux_musl=$(pwd)/x86_64-linux-musl-cross/bin/x86_64-linux-musl--g++" >> $GITHUB_ENV
+          echo "AR_x86_64_unknown_linux_musl=$(pwd)/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=$(pwd)/x86_64-linux-musl-cross/bin/x86_64-linux-musl-gcc" >> $GITHUB_ENV
+          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_AR=$(pwd)/x86_64-linux-musl-cross/bin/x86_64-linux-musl-ar" >> $GITHUB_ENV
+          echo "TARGET_PLATFORM=linux" >> $GITHUB_ENV
+          echo "TARGET_ARCH=x64" >> $GITHUB_ENV
+          echo "TARGET_LIBC=musl" >> $GITHUB_ENV
+      - name: npm i
+        run: npm i
+      - name: Build
+        run: npm run build:cargo
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-x64-musl
+          path: native/linux-x64-musl.node
+          if-no-files-found: error
+
+  build_linux-arm64-musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The native addon embeds `git describe` output; release builds run before
+      # the tag exists (it is created when the draft release is published).
+      - name: Tag release commit locally for version metadata
+        if: ${{ inputs.version != '' }}
+        run: git tag "v${{ inputs.version }}"
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Download aarch64-linux-musl-cross toolchain
+        run: curl -O -L -C - https://github.com/musl-cc/musl.cc/releases/download/v0.0.1/aarch64-linux-musl-cross.tgz
+      - name: Install aarch64-linux-musl-cross toolchain
+        run: tar xf aarch64-linux-musl-cross.tgz
+      - name: Configure linux-arm64-musl cross compile
+        run: |
+          echo "CC_aarch64_unknown_linux_musl=$(pwd)/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc" >> $GITHUB_ENV
+          echo "CXX_aarch64_unknown_linux_musl=$(pwd)/aarch64-linux-musl-cross/bin/aarch64-linux-musl--g++" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_musl=$(pwd)/aarch64-linux-musl-cross/bin/aarch64-linux-musl-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=$(pwd)/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_AR=$(pwd)/aarch64-linux-musl-cross/bin/aarch64-linux-musl-ar" >> $GITHUB_ENV
+          echo "TARGET_PLATFORM=linux" >> $GITHUB_ENV
+          echo "TARGET_ARCH=arm64" >> $GITHUB_ENV
+          echo "TARGET_LIBC=musl" >> $GITHUB_ENV
+      - name: npm i
+        run: npm i
+      - name: Build
+        run: npm run build:cargo
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-arm64-musl
+          path: native/linux-arm64-musl.node
+          if-no-files-found: error
+
+  build_linux-x64-glibc:
+    runs-on: ubuntu-latest
+    container:
+      image: rust
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The native addon embeds `git describe` output; release builds run before
+      # the tag exists (it is created when the draft release is published).
+      - name: Tag release commit locally for version metadata
+        if: ${{ inputs.version != '' }}
+        run: git tag "v${{ inputs.version }}"
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: npm i
+        run: npm i
+      - name: Build
+        run: npm run build:cargo
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-x64-glibc
+          path: native/linux-x64-glibc.node
+          if-no-files-found: error
+
+  build_linux-arm64-glibc:
+    runs-on: ubuntu-latest
+    container:
+      image: rust
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The native addon embeds `git describe` output; release builds run before
+      # the tag exists (it is created when the draft release is published).
+      - name: Tag release commit locally for version metadata
+        if: ${{ inputs.version != '' }}
+        run: git tag "v${{ inputs.version }}"
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: Install cross compile deps
+        run: |
+          apt-get update && apt-get install -y g++-aarch64-linux-gnu libc6-dev-arm64-cross gcc-aarch64-linux-gnu qemu-user
+      - name: Configure linux-arm64 cross compile
+        run: |
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER="qemu-aarch64 -L /usr/aarch64-linux-gnu"' >> $GITHUB_ENV
+          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+          echo "TARGET_ARCH=arm64" >> $GITHUB_ENV
+      - name: npm i
+        run: npm i
+      - name: Build
+        run: npm run build:cargo
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux-arm64-glibc
+          path: native/linux-arm64-glibc.node
+          if-no-files-found: error
+
+  build_win-x64:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The native addon embeds `git describe` output; release builds run before
+      # the tag exists (it is created when the draft release is published).
+      - name: Tag release commit locally for version metadata
+        if: ${{ inputs.version != '' }}
+        run: git tag "v${{ inputs.version }}"
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+      - name: npm i
+        run: npm i
+      - name: Build
+        run: npm run build:cargo
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: win32-x64
+          path: native/win32-x64.node
+          if-no-files-found: error
+
+  # build_darwin-x64:
+  #   if: ${{ false }}
+  #   runs-on: macos-14
+  #   steps:
+  #     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+  #     - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+  #       with:
+  #         targets: x86_64-apple-darwin
+  #     - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+  #       with:
+  #         node-version-file: .nvmrc
+  #     - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+  #     - name: npm i
+  #       run: npm i
+  #     - name: Build
+  #       run: npm run build:cargo
+  #     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+  #       with:
+  #         name: darwin-x64
+  #         path: native/darwin-x64.node
+  #         if-no-files-found: error
+
+  build_darwin-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The native addon embeds `git describe` output; release builds run before
+      # the tag exists (it is created when the draft release is published).
+      - name: Tag release commit locally for version metadata
+        if: ${{ inputs.version != '' }}
+        run: git tag "v${{ inputs.version }}"
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+      # `cache-bin: false` avoids restoring a broken `~/.cargo/bin/` over the
+      # rustup proxies on macOS. See https://github.com/Swatinem/rust-cache/issues/341
+      # and https://github.com/actions/runner-images/issues/14097
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          cache-bin: 'false'
+      - name: Configure macos-arm64 cross compile
+        run: |
+          echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
+          echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
+          echo "TARGET_ARCH=arm64" >> $GITHUB_ENV
+      - name: npm i
+        run: npm i
+      - name: Build
+        run: npm run build:cargo
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: darwin-arm64
+          path: native/darwin-arm64.node
+          if-no-files-found: error

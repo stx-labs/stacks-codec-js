@@ -246,7 +246,7 @@ impl NeonJsSerialize for Encode<'_, BlockRejection> {
     ) -> NeonResult<()> {
         let rejection = self.0;
 
-        let reason = cx.string(&rejection.reason);
+        let reason = cx.string(&*rejection.reason);
         obj.set(cx, "reason", reason)?;
 
         let reason_code_obj = cx.empty_object();
@@ -371,7 +371,7 @@ impl NeonJsSerialize for Encode<'_, RejectCode> {
             }
             RejectCode::NoSortitionView => "no_sortition_view",
             RejectCode::ConnectivityIssues(msg) => {
-                let msg_str = cx.string(msg);
+                let msg_str = cx.string(&**msg);
                 obj.set(cx, "message", msg_str)?;
                 "connectivity_issues"
             }
@@ -399,7 +399,7 @@ impl NeonJsSerialize for Encode<'_, RejectReason> {
             }
             RejectReason::NoSortitionView => "no_sortition_view",
             RejectReason::ConnectivityIssues(msg) => {
-                let msg_str = cx.string(msg);
+                let msg_str = cx.string(&**msg);
                 obj.set(cx, "message", msg_str)?;
                 "connectivity_issues"
             }
@@ -417,6 +417,8 @@ impl NeonJsSerialize for Encode<'_, RejectReason> {
             RejectReason::IrrecoverablePubkeyHash => "irrecoverable_pubkey_hash",
             RejectReason::NoSignerConsensus => "no_signer_consensus",
             RejectReason::ProblematicTransactions => "problematic_transactions",
+            RejectReason::ProposalTooOld => "proposal_too_old",
+            RejectReason::RewardCycleRetired => "reward_cycle_retired",
             RejectReason::ConsensusHashMismatch { expected, actual } => {
                 let expected_str = cx.string(encode_hex(&expected.0));
                 obj.set(cx, "expected_consensus_hash", expected_str)?;

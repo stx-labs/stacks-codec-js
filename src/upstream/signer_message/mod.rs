@@ -41,7 +41,7 @@ pub fn decode_signer_message(mut cx: FunctionContext) -> JsResult<JsObject> {
     let message = arg_as_bytes(&mut cx, 0, |val_bytes| {
         let mut cursor = Cursor::new(val_bytes);
         deserialize_signer_message(&mut cursor)
-            .map_err(|e| format!("Failed to decode signer message: {:?}\n", &e))
+            .map_err(|e| format!("Failed to decode signer message: {:?}\n", e))
     })
     .or_else(|e| cx.throw_error(e))?;
 
@@ -53,6 +53,7 @@ pub fn decode_signer_message(mut cx: FunctionContext) -> JsResult<JsObject> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use stacks_common::types::chainstate::StacksPrivateKey;
     use stacks_common::util::hash::Sha512Trunc256Sum;
     use stacks_common::util::secp256k1::MessageSignature;
 
@@ -85,6 +86,28 @@ mod tests {
             1_700_000_001,
         ));
         round_trip(message);
+    }
+
+    /// A `BlockRejection` carrying `reason`, signed by a fixed key so the
+    /// serialized bytes are deterministic.
+    fn block_rejection(reason: RejectReason) -> SignerMessage {
+        SignerMessage::BlockResponse(BlockResponse::rejected(
+            Sha512Trunc256Sum([0x03; 32]),
+            reason,
+            &StacksPrivateKey::from_seed(&[0x01]),
+            false,
+            1_700_000_000,
+            1_700_000_001,
+        ))
+    }
+
+    #[test]
+    fn block_response_rejected_new_reasons_round_trip() {
+        // `ProposalTooOld` (wire code 18) and `RewardCycleRetired` (19) were
+        // added upstream after 2.1.0; make sure they survive the round trip
+        // instead of collapsing into `RejectReason::Unknown`.
+        round_trip(block_rejection(RejectReason::ProposalTooOld));
+        round_trip(block_rejection(RejectReason::RewardCycleRetired));
     }
 
     #[test]
