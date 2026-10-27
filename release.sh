@@ -41,6 +41,11 @@ echo ""
 echo "Updating root package.json..."
 npm version "$VERSION" --no-git-tag-version
 
+# Update Cargo.toml (only the [package] section's version line) and Cargo.lock
+echo "Updating Cargo.toml and Cargo.lock..."
+sed -i '' "/^\[package\]/,/^\[/ s/^version = \".*\"/version = \"${VERSION}\"/" Cargo.toml
+cargo update --package stacks-encoding-native-js --offline
+
 echo ""
 echo "Done! Version ${VERSION} updated in all package files."
 echo "Next steps:"

@@ -1,6 +1,6 @@
 [package]
 name = "stacks-encoding-native-js"
-version = "0.1.0"
+version = "2.2.0"
 # Native binary statically links GPL-3.0 code from stacks-network/stacks-core.
 license = "GPL-3.0"
 edition = "2021"
