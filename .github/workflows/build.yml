@@ -180,7 +180,7 @@ jobs:
   #         if-no-files-found: error
 
   build_darwin-arm64:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -198,7 +198,9 @@ jobs:
       - name: Configure macos-arm64 cross compile
         run: |
           echo "SDKROOT=$(xcrun -sdk macosx --show-sdk-path)" >> $GITHUB_ENV
-          echo "MACOSX_DEPLOYMENT_TARGET=$(xcrun -sdk macosx --show-sdk-platform-version)" >> $GITHUB_ENV
+          # Pinned so the runner's SDK version doesn't raise the minimum macOS
+          # the addon loads on (macos-14 runners produced a 14.5 floor).
+          echo "MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-14.0}" >> $GITHUB_ENV
           echo "TARGET_ARCH=arm64" >> $GITHUB_ENV
       - name: npm i
         run: npm i
